@@ -1,0 +1,27 @@
+# Laufzeit-Abhängigkeiten gemäß KONZEPT.md
+# sqlite3 ist Teil der Python-Standardbibliothek und wird hier nicht aufgeführt.
+anthropic==0.97.0
+chromadb==1.5.8
+streamlit==1.56.0
+python-dotenv==1.2.2
+# Wird für das mehrsprachige Embedding-Modell paraphrase-multilingual-MiniLM-L12-v2
+# benötigt. ChromaDB nutzt sonst standardmäßig ein englisch-zentriertes Modell,
+# das bei deutschen Texten deutlich schwächere Treffer liefert. Zieht PyTorch
+# als transitive Abhängigkeit mit (~500 MB Plattenplatz).
+sentence-transformers==5.4.1
+
+# Test-Abhängigkeiten
+pytest==9.0.3
+pytest-html==4.2.0  # erzeugt HTML-Reports der Test-Läufe (siehe README)
+
+# Bekanntes Problem: pyarrow wird transitiv über sklearn (via
+# sentence-transformers) gezogen, ist aber für unser Projekt nicht
+# nötig. Auf manchen Windows-Setups (Smart App Control / AppLocker)
+# blockiert die OS-Sicherheitsrichtlinie eine pyarrow-DLL, was
+# sentence_transformers beim Import abstürzen lässt mit
+# "ImportError: DLL load failed ... Anwendungssteuerungsrichtlinie".
+# sklearn fängt nur ModuleNotFoundError, nicht ImportError, ab.
+# Workaround: pyarrow nach `pip install -r requirements.txt` wieder
+# entfernen:
+#     pip uninstall pyarrow -y
+# Siehe README, Abschnitt "Bekannte Stolpersteine".

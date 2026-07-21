@@ -1,0 +1,70 @@
+Kontenplan und Buchungssystematik der Alpenbank AG
+
+Stand: Januar 2024
+Verantwortlich: Bereich Rechnungswesen
+
+1. Einleitung
+
+Dieser Kontenplan beschreibt die in der Ergebnisrechnung verwendeten
+Sachkonten. Er ist abgeleitet aus dem Bankenkontenrahmen und an die
+internen Steuerungsanforderungen der Alpenbank AG angepasst.
+
+2. Aufbau der Kontonummern
+
+Die Kontonummern sind vierstellig. Die erste Ziffer kennzeichnet die
+Konten-Hauptgruppe:
+- 4xxx: Erträge aus dem operativen Bankgeschäft
+- 5xxx: Außerordentliche und sonstige Erträge (derzeit nicht in Verwendung)
+- 6xxx: Aufwendungen aller Art
+
+Innerhalb der Hauptgruppen erfolgt die weitere Gliederung nach
+Geschäftsfeld oder Aufwandsart.
+
+3. Wichtige Ertragskonten
+
+- 4000 Zinserträge Kreditgeschäft: Erträge aus an Kunden vergebenen
+  Krediten, einschließlich Bauspar- und Hypothekendarlehen
+- 4010 Zinserträge Wertpapiere: Erträge aus dem Wertpapierbestand der
+  Bank, insbesondere Anleihen
+- 4100 Provisionserträge Wertpapiere: Provisionen aus
+  Wertpapierdienstleistungen für Kunden
+- 4110 Provisionserträge Zahlungsverkehr: Gebühren aus dem laufenden
+  Zahlungsverkehr
+- 4500 Auflösung Risikovorsorge: Auflösung von Wertberichtigungen, wenn
+  sich Risiken nicht realisieren
+
+4. Wichtige Aufwandskonten
+
+- 6000 Personalaufwand Gehälter: Bruttogehälter aller fest angestellten
+  Mitarbeiter
+- 6010 Personalaufwand Sozialabgaben: Arbeitgeberanteile zur
+  Sozialversicherung
+- 6020 Personalaufwand Boni: Variable Vergütungsbestandteile
+- 6100 bis 6110 Raumkosten: Mieten und Nebenkosten der Gebäude
+- 6200 bis 6220 IT-Kosten: Hardware, Software-Lizenzen, Wartung
+- 6300 Reisekosten: gemäß Reisekostenrichtlinie
+- 6600 Risikovorsorge Kreditgeschäft: Wertberichtigungen auf gefährdete
+  Kreditforderungen
+
+5. Besonderheiten
+
+Die Konten 6020 (Boni) und 6600 (Risikovorsorge) weisen typischerweise
+starke saisonale Schwankungen auf und konzentrieren sich auf das vierte
+Quartal des Geschäftsjahres. Bei Auswertungen ist dies zu berücksichtigen.
+
+Das Konto 4500 (Auflösung Risikovorsorge) ist ein Ertragskonto, obwohl es
+inhaltlich eine Korrektur einer früheren Aufwandsbuchung darstellt. In der
+internen Ergebnisrechnung wird es saldiert mit Konto 6600 dargestellt.
+
+6. Buchungslogik
+
+Alle Beträge werden grundsätzlich mit positivem Vorzeichen gebucht. Die
+Unterscheidung zwischen Ertrag und Aufwand erfolgt über das Feld typ in
+der Tabelle der Sachkonten. Für die Berechnung von Salden und
+Deckungsbeiträgen werden Aufwendungen rechentechnisch invertiert.
+
+7. Anlage neuer Konten
+
+Neue Sachkonten werden ausschließlich vom Bereich Rechnungswesen angelegt
+und müssen vom Vorstand genehmigt werden. Anträge sind mit Begründung und
+voraussichtlichem Buchungsvolumen einzureichen.

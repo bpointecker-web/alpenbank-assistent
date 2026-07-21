@@ -1,0 +1,63 @@
+Kostenstellenhandbuch der Alpenbank AG
+
+Stand: März 2024
+Verantwortlich: Bereich Controlling
+
+1. Zweck dieses Handbuchs
+
+Das Kostenstellenhandbuch beschreibt die Systematik der
+Kostenstellenrechnung in der Alpenbank AG. Es dient als verbindliche
+Grundlage für die Zuordnung von Aufwendungen und Erträgen sowie für die
+monatliche Auswertung.
+
+2. Aufbau der Kostenstellennummern
+
+Die Kostenstellennummer ist vierstellig und folgt einer festen Logik:
+- 4xxx: Vertriebskostenstellen (Privat- und Firmenkundengeschäft)
+- 5xxx: Service- und Infrastrukturkostenstellen, insbesondere IT
+- 6xxx: Stabskostenstellen (Personal, Risiko, Compliance)
+- 7xxx: Allgemeine und übergreifende Kostenstellen
+
+Innerhalb jeder Hauptgruppe werden Untergliederungen nach Region oder
+fachlicher Zuständigkeit vorgenommen.
+
+3. Verantwortlichkeiten
+
+Jede Kostenstelle hat einen benannten Kostenstellenverantwortlichen, in der
+Regel die fachliche Führungskraft. Diese Person ist für die korrekte
+Buchung von Aufwendungen, die Plausibilität der Kostenstellenauswertung
+sowie die Abweichungsanalyse zum Plan verantwortlich.
+
+4. Allokationsregeln
+
+Direkte Kosten werden unmittelbar der verursachenden Kostenstelle belastet.
+Beispiele:
+- Gehälter: Kostenstelle des Mitarbeiters laut Personalstammdaten
+- Reisekosten: Kostenstelle des reisenden Mitarbeiters
+- IT-Hardware: Kostenstelle des Empfängers, sofern eindeutig zuordenbar
+
+Gemeinkosten werden nach festgelegten Verteilungsschlüsseln umgelegt:
+- Gebäude- und Raumkosten: nach genutzter Fläche in Quadratmetern
+- IT-Grundinfrastruktur: nach Anzahl der vergebenen Arbeitsplätze
+- Personalbereich: nach Anzahl der zugeordneten Mitarbeiter
+- Vorstandsbüro und Aufsichtsrat: gleichmäßig auf alle Vertriebskostenstellen
+
+5. Innerbetriebliche Leistungsverrechnung
+
+Servicebereiche, insbesondere die IT-Bereiche und das Personalwesen,
+verrechnen ihre Leistungen quartalsweise an die empfangenden
+Kostenstellen. Die Verrechnungssätze werden jährlich vom Bereich
+Controlling neu ermittelt und in der Ergebnisrechnung dokumentiert.
+
+6. Plan-Ist-Vergleich
+
+Jede Kostenstelle erhält monatlich eine Auswertung mit Plan-, Ist- und
+Vorjahreswerten. Abweichungen größer als zehn Prozent oder zwanzigtausend
+Euro pro Monat sind durch den Kostenstellenverantwortlichen zu kommentieren.
+
+7. Änderungen an Kostenstellen
+
+Neue Kostenstellen werden ausschließlich vom Bereich Controlling angelegt.
+Änderungen an bestehenden Kostenstellen, etwa Umbenennungen oder
+Abteilungswechsel, sind schriftlich beim Controlling zu beantragen und mit
+ausreichender Vorlaufzeit vor Monatsabschluss durchzuführen.

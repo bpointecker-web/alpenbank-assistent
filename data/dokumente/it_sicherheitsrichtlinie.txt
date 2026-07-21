@@ -1,0 +1,71 @@
+IT-Sicherheitsrichtlinie der Alpenbank AG
+
+Stand: April 2024
+Verantwortlich: Bereich Informationssicherheit
+
+1. Zweck
+
+Diese Richtlinie legt verbindliche Regeln zum sicheren Umgang mit
+informationstechnischen Systemen, Daten und Zugängen fest. Sie ist von
+allen Mitarbeitern, externen Dienstleistern und Zeitkräften zu beachten.
+
+2. Passwörter
+
+Passwörter müssen folgende Mindestanforderungen erfüllen:
+- mindestens zwölf Zeichen Länge
+- mindestens ein Großbuchstabe, ein Kleinbuchstabe, eine Ziffer und ein
+  Sonderzeichen
+- keine Wörter aus gängigen Wörterbüchern
+- keine personenbezogenen Bestandteile wie Name oder Geburtsdatum
+
+Passwörter sind alle neunzig Tage zu wechseln. Die letzten zehn verwendeten
+Passwörter dürfen nicht wiederverwendet werden. Die Weitergabe von
+Passwörtern an andere Personen ist in jedem Fall untersagt, auch nicht an
+die IT-Abteilung.
+
+3. Multi-Faktor-Authentifizierung
+
+Für alle Zugänge zu kundenbezogenen Systemen, zum Online-Banking-Backend,
+zum E-Mail-Postfach und zu administrativen Systemen ist eine
+Zwei-Faktor-Authentifizierung verpflichtend. Als zweiter Faktor dient die
+hauseigene Authenticator-App auf dem Diensthandy.
+
+4. Umgang mit Kundendaten
+
+Kundendaten dürfen ausschließlich auf bankeigenen Systemen gespeichert
+werden. Die lokale Speicherung auf privaten Geräten, USB-Sticks oder in
+nicht freigegebenen Cloud-Diensten ist strikt untersagt.
+
+Bei der Übermittlung von Kundendaten per E-Mail ist eine
+Ende-zu-Ende-Verschlüsselung zwingend. Für den Versand größerer
+Datenmengen steht das interne Datenaustauschportal zur Verfügung.
+
+Ausdrucke mit Kundendaten sind nach Verwendung umgehend in den dafür
+vorgesehenen Sicherheitstonnen zu entsorgen, niemals im allgemeinen
+Papierabfall.
+
+5. E-Mail und Phishing
+
+Bei verdächtigen E-Mails, insbesondere mit Aufforderungen zur Eingabe von
+Zugangsdaten oder zum Öffnen unerwarteter Anhänge, ist die Mail
+unverzüglich an die Adresse phishing@alpenbank.ag weiterzuleiten und
+anschließend zu löschen.
+
+Auf keinen Fall dürfen Anhänge geöffnet oder Links angeklickt werden, die
+nicht eindeutig als unbedenklich erkannt wurden.
+
+6. Nutzung mobiler Endgeräte
+
+Diensthandys und Notebooks sind mit Geräteverschlüsselung und
+Bildschirmsperre zu versehen. Bei Verlust oder Diebstahl ist die
+IT-Abteilung umgehend zu informieren, damit eine Fernlöschung erfolgen
+kann.
+
+Die Nutzung von dienstlichen Geräten für private Zwecke ist in begrenztem
+Umfang gestattet, soweit keine sicherheitsrelevanten Risiken entstehen.
+
+7. Verstöße
+
+Verstöße gegen diese Richtlinie können disziplinarische Maßnahmen
+einschließlich Kündigung nach sich ziehen. Schwerwiegende Verstöße werden
+zusätzlich an die Aufsichtsbehörden gemeldet.

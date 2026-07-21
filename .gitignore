@@ -1,0 +1,10 @@
+.env
+.env.local
+__pycache__/
+.venv/
+.pytest_cache/
+data/*.db
+data/chroma/
+data/chroma_with_vectors.sqlite3
+data/chroma_with_vectors.sqbpro
+docs/test-reports/*.html

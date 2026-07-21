@@ -1,0 +1,11 @@
+# Streamlit-Konfiguration für den Alpenbank-Assistenten.
+#
+# fileWatcherType = "none" deaktiviert das Auto-Reload bei Code-Änderungen.
+# Grund: Streamlit's Standard-Watcher scannt alle importierten Module, um
+# bei Datei-Änderungen neu zu laden. Dabei stolpert er auf Windows über
+# pyarrow (transitive Abhängigkeit von sklearn, geladen via transformers
+# via sentence-transformers) und bricht beim DLL-Pfad-Patch mit
+# WinError 206 ab. Da unsere App nur per Bedienung läuft (kein klassisches
+# Hot-Reload-Bedürfnis), schalten wir den Watcher ganz aus.
+[server]
+fileWatcherType = "none"
