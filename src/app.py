@@ -8,9 +8,14 @@ nacheinander. Die Werkzeuge werden in der UI als ausklappbare
 Trace-Blöcke unter der Antwort dargestellt, damit der Nutzer
 nachvollziehen kann, was Claude getan hat.
 
-Voraussetzungen:
+Voraussetzungen (Live-Modus):
     data/chroma/         (für RAG, erzeugt durch scripts/rag_index.py)
     data/controlling.db  (für SQL, erzeugt durch scripts/daten_erzeugen.py)
+    ANTHROPIC_API_KEY in .env
+
+Demo-Modus (ALPENBANK_DEMO_MODE=1, siehe src/demo.py):
+    data/demo_cache.json (erzeugt durch scripts/demo_cache_erzeugen.py)
+    Kein API-Key nötig – nur die zehn Demo-Fragen werden beantwortet.
 
 Start im Projekt-Root:
     streamlit run src/app.py
@@ -36,7 +41,7 @@ import streamlit as st  # noqa: E402
 from anthropic import Anthropic  # noqa: E402
 from dotenv import load_dotenv  # noqa: E402
 
-from src import agent, rag, sql  # noqa: E402
+from src import agent, demo, rag, sql  # noqa: E402
 from src.logging_config import setup_logging  # noqa: E402
 
 # .env laden, bevor wir auf Umgebungsvariablen zugreifen.
@@ -44,6 +49,12 @@ load_dotenv()
 
 setup_logging()
 logger = logging.getLogger(__name__)
+
+# Demo-Modus: spielt vorab aufgezeichnete Antworten aus data/demo_cache.json
+# ab, statt Claude live aufzurufen. Ermöglicht eine öffentlich verlinkbare,
+# kostenlose Demo (z. B. auf Streamlit Community Cloud) ohne API-Key auf
+# dem Server – siehe src/demo.py und scripts/demo_cache_erzeugen.py.
+DEMO_MODE = os.environ.get("ALPENBANK_DEMO_MODE") == "1"
 
 # Pfade müssen zu den Konstanten in den Indexier-/Erzeugungs-Skripten
 # passen – beide laufen aus dem Projekt-Root.
@@ -53,18 +64,29 @@ CONTROLLING_PATH = Path("data/controlling.db")
 # set_page_config muss der erste Streamlit-Aufruf sein.
 st.set_page_config(page_title="Alpenbank-Assistent", page_icon="🏔️")
 
-st.title("Alpenbank-Assistent")
-st.caption("Schritt 4: Agent mit Tool Use")
-
-# API-Key prüfen, bevor wir den Client bauen. Lieber sofort eine klare
-# Fehlermeldung als ein kryptischer Authentifizierungs-Fehler später.
-api_key = os.environ.get("ANTHROPIC_API_KEY")
-if not api_key:
-    st.error(
-        "ANTHROPIC_API_KEY ist nicht gesetzt. "
-        "Bitte `.env.example` nach `.env` kopieren und den Schlüssel eintragen."
+st.title("🏔️ Alpenbank-Assistent")
+if DEMO_MODE:
+    st.caption("Agent mit Tool Use – Demo-Modus (kostenlos, ohne Live-API)")
+    st.info(
+        "**Demo-Modus:** Diese Instanz beantwortet nur die zehn "
+        "Beispielfragen unten mit vorab aufgezeichneten, echten "
+        "Claude-Antworten – kein API-Key, keine laufenden Kosten. "
+        "Für eigene Fragen: Projekt lokal mit eigenem "
+        "Anthropic-API-Key betreiben (siehe README).",
+        icon="🧪",
     )
-    st.stop()
+else:
+    st.caption("Agent mit Tool Use")
+
+    # API-Key prüfen, bevor wir den Client bauen. Lieber sofort eine klare
+    # Fehlermeldung als ein kryptischer Authentifizierungs-Fehler später.
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        st.error(
+            "ANTHROPIC_API_KEY ist nicht gesetzt. Bitte `.env.example` "
+            "nach `.env` kopieren und den Schlüssel eintragen."
+        )
+        st.stop()
 
 
 @st.cache_resource
@@ -121,18 +143,39 @@ def load_schema(db_path_str: str) -> str:
         tmp_conn.close()
 
 
-# Eager-Loading aller Ressourcen. Im Tool-Use-Modus kann Claude jederzeit
-# beide Werkzeuge wählen, deshalb müssen Embedding-Modell und DB-Schema
-# direkt beim App-Start verfügbar sein. Streamlit zeigt dabei seinen
-# eigenen Spinner, der erste Start dauert deshalb spürbar länger.
-client = build_client(api_key)
-try:
-    collection = open_collection(str(CHROMA_PATH))
-    connection = open_db(str(CONTROLLING_PATH))
-    schema = load_schema(str(CONTROLLING_PATH))
-except (FileNotFoundError, LookupError) as exc:
-    st.error(str(exc))
-    st.stop()
+@st.cache_resource
+def load_demo_cache(cache_path_str: str) -> dict:
+    """Lädt den Demo-Cache einmal pro Session (siehe ``src/demo.py``)."""
+    return demo.load_cache(cache_path_str)
+
+
+# Eager-Loading der Ressourcen. Im Demo-Modus reicht der Cache – Embedding-
+# Modell, ChromaDB und die Controlling-DB werden dort gar nicht erst
+# angerührt, was den Cloud-Deploy leichtgewichtig hält. Im Live-Modus
+# müssen Embedding-Modell und DB-Schema direkt beim App-Start verfügbar
+# sein, weil Claude im Tool-Use-Modus jederzeit beide Werkzeuge wählen
+# kann. Streamlit zeigt dabei seinen eigenen Spinner, der erste Start
+# dauert deshalb spürbar länger.
+if DEMO_MODE:
+    client = None
+    collection = None
+    connection = None
+    schema = None
+    try:
+        demo_cache = load_demo_cache(str(demo.DEMO_CACHE_PATH))
+    except FileNotFoundError as exc:
+        st.error(str(exc))
+        st.stop()
+else:
+    demo_cache = None
+    client = build_client(api_key)
+    try:
+        collection = open_collection(str(CHROMA_PATH))
+        connection = open_db(str(CONTROLLING_PATH))
+        schema = load_schema(str(CONTROLLING_PATH))
+    except (FileNotFoundError, LookupError) as exc:
+        st.error(str(exc))
+        st.stop()
 
 
 # Historie für die UI. Jede Assistant-Message trägt zusätzlich zu
@@ -233,6 +276,19 @@ def render_message(msg: dict) -> None:
             )
 
 
+# Beispielfrage-Chips: alle zehn Demo-Fragen aus KONZEPT.md als klickbare
+# Buttons, zweispaltig. Ein Klick setzt "chip_frage" in den Session-State;
+# Streamlit rendert dabei automatisch neu, der eigentliche Verlauf unten
+# behandelt Chip-Klick und Freitext-Eingabe danach einheitlich.
+st.markdown("**Beispielfragen zum Ausprobieren:**")
+chip_spalten = st.columns(2)
+for index, frage in enumerate(demo.DEMO_FRAGEN):
+    spalte = chip_spalten[index % 2]
+    if spalte.button(frage, key=f"chip_{index}", use_container_width=True):
+        st.session_state["chip_frage"] = frage
+st.divider()
+
+
 # Bisherigen Verlauf rendern.
 for msg in st.session_state.messages:
     render_message(msg)
@@ -240,21 +296,42 @@ for msg in st.session_state.messages:
 
 user_input = st.chat_input("Stell deine Frage …")
 
+# Chip-Klick zählt wie eine getippte Frage, hat aber Vorrang nur, wenn im
+# selben Durchlauf nichts eingegeben wurde – chat_input() liefert nach
+# einem Klick auf einen Button ohnehin None.
+chip_frage = st.session_state.pop("chip_frage", None)
+if chip_frage and not user_input:
+    user_input = chip_frage
+
 if user_input:
     user_msg = {"role": "user", "content": user_input}
     st.session_state.messages.append(user_msg)
     render_message(user_msg)
 
-    with st.spinner("Claude überlegt und nutzt Werkzeuge …"):
+    spinner_text = (
+        "Antwort wird geladen …" if DEMO_MODE else "Claude überlegt und nutzt Werkzeuge …"
+    )
+    with st.spinner(spinner_text):
         try:
-            antwort = agent.answer_question(
-                client,
-                frage=user_input,
-                history=history_for_agent(st.session_state.messages[:-1]),
-                db=connection,
-                collection=collection,
-                schema=schema,
-            )
+            if DEMO_MODE:
+                cache_treffer = demo.lookup(demo_cache, user_input)
+                if cache_treffer is None:
+                    antwort = agent.AgentAntwort(
+                        text=demo.KEIN_CACHE_TREFFER_HINWEIS,
+                        traces=[],
+                        iterations_used=0,
+                    )
+                else:
+                    antwort = demo.deserialize_antwort(cache_treffer)
+            else:
+                antwort = agent.answer_question(
+                    client,
+                    frage=user_input,
+                    history=history_for_agent(st.session_state.messages[:-1]),
+                    db=connection,
+                    collection=collection,
+                    schema=schema,
+                )
         except Exception:
             # Generischer Fang für unerwartete Probleme (Netzwerk,
             # Auth, ChromaDB). Spezifische Fehlerklassen kommen, sobald
