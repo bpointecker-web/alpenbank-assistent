@@ -9,3 +9,15 @@
 # Hot-Reload-Bedürfnis), schalten wir den Watcher ganz aus.
 [server]
 fileWatcherType = "none"
+
+# Dezentes Bank-Farbschema: dunkles Petrol/Navy als Textfarbe und Akzent
+# aus dem Header (siehe src/app.py), Gold als sparsam eingesetzte
+# Akzentfarbe für Buttons/aktive Elemente. Heller Hintergrund für gute
+# Lesbarkeit von Tabellen und SQL-Code-Blöcken.
+[theme]
+base = "light"
+primaryColor = "#C9A227"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#EEF2F5"
+textColor = "#1B2A38"
+font = "sans serif"

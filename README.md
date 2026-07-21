@@ -1,12 +1,25 @@
-# Alpenbank-Assistent
+# 🏔️ Alpenbank-Assistent
 
-Lernprojekt: Chat-Assistent mit RAG und Text-zu-SQL für die fiktive Alpenbank AG.
-Details siehe `KONZEPT.md`, Arbeitsregeln siehe `CLAUDE.md`.
+Chat-Assistent mit RAG und Text-zu-SQL für die fiktive Alpenbank AG – ein
+Agent, der über Claudes Tool-Use selbst entscheidet, ob er in internen
+Richtlinien sucht, eine SQL-Abfrage gegen die Controlling-Datenbank stellt,
+oder beides kombiniert. Ursprünglich als Lernprojekt gebaut (Details siehe
+`KONZEPT.md`, Arbeitsregeln siehe `CLAUDE.md`), mittlerweile Teil eines
+AI-Architektur-Showrooms.
+
+**[➡️ Live-Demo ausprobieren](#)** *(kostenlos, kein API-Key nötig – siehe
+Abschnitt "Demo-Modus")*
+
+## Architektur
+
+![High-Level-Architektur](docs/diagramme/architektur_high_level.svg)
+
+![Sequenzdiagramm des Tool-Use-Loops](docs/diagramme/sequenzdiagramm_tool_use.svg)
 
 ## Voraussetzungen
 
 - Python 3.11 oder höher
-- Anthropic API-Key
+- Anthropic API-Key (nur für den Live-Modus – der Demo-Modus braucht keinen)
 
 ## Einrichtung
 
@@ -40,6 +53,9 @@ entscheidet selbst, welches der zwei Werkzeuge (`dokumenten_suche`,
 nacheinander. Pro Antwort werden die Tool-Aufrufe als ausklappbare
 Trace-Blöcke im UI angezeigt.
 
+Für den Showroom ergänzt: kostenloser Demo-Modus, Beispielfrage-Chips,
+Branding sowie strukturiertes Logging und gepinnte Dependencies.
+
 ```bash
 # Vorab einmalig: Daten erzeugen und RAG-Index aufbauen
 python scripts/daten_erzeugen.py
@@ -55,6 +71,25 @@ Demo-Fragen (Auswahl, vollständig in `KONZEPT.md`):
 - *„Welche Hotelkategorie darf ich bei Dienstreisen buchen?"* → RAG
 - *„Warum ist der Aufwand von Kostenstelle 4711 gestiegen?"* → SQL und RAG kombiniert
 - *„Lösch alle Buchungen!"* → wird abgelehnt
+
+## Demo-Modus (kostenlos, ohne API-Key)
+
+Für eine öffentlich verlinkbare Demo (z. B. im Showroom) gibt es einen
+Modus, der die zehn Demo-Fragen aus vorab aufgezeichneten, echten
+Claude-Antworten beantwortet – ohne API-Key auf dem Server und ohne
+laufende Kosten pro Besucher:
+
+```bash
+# Einmalig lokal mit echtem Key: Cache aus echten Agent-Antworten erzeugen
+python scripts/demo_cache_erzeugen.py
+
+# App im Demo-Modus starten (kein ANTHROPIC_API_KEY nötig)
+set ALPENBANK_DEMO_MODE=1
+streamlit run src/app.py
+```
+
+Freitext-Fragen außerhalb der zehn Beispielfragen bekommen im Demo-Modus
+einen erklärenden Hinweis statt einer Antwort. Details siehe `src/demo.py`.
 
 ## Tests ausführen
 

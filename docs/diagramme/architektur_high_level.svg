@@ -1,0 +1,78 @@
+<svg viewBox="0 0 900 660" xmlns="http://www.w3.org/2000/svg" font-family="'Segoe UI', Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1b3a52"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="900" height="660" fill="#ffffff"/>
+
+  <text x="450" y="32" text-anchor="middle" font-size="20" font-weight="700" fill="#1B2A38">
+    Alpenbank-Assistent &#8211; High-Level-Architektur
+  </text>
+  <text x="450" y="52" text-anchor="middle" font-size="12.5" fill="#5b6b76">
+    Custom-RAG + Text-zu-SQL &#252;ber einen Claude-Tool-Use-Agenten &#8211; bewusst ohne LangChain/LlamaIndex
+  </text>
+
+  <!-- Nutzer -->
+  <rect x="320" y="72" width="260" height="52" rx="8" fill="#EEF2F5" stroke="#1B2A38" stroke-width="1.5"/>
+  <text x="450" y="103" text-anchor="middle" font-size="15" fill="#1B2A38">Nutzer (Browser)</text>
+
+  <!-- Streamlit UI -->
+  <rect x="320" y="162" width="260" height="52" rx="8" fill="#EEF2F5" stroke="#1B2A38" stroke-width="1.5"/>
+  <text x="450" y="185" text-anchor="middle" font-size="14.5" fill="#1B2A38">Streamlit-UI</text>
+  <text x="450" y="203" text-anchor="middle" font-size="11.5" fill="#5b6b76">src/app.py</text>
+
+  <!-- Agent (Kern, hervorgehoben) -->
+  <rect x="280" y="252" width="340" height="76" rx="10" fill="#0f2a3d" stroke="#C9A227" stroke-width="2"/>
+  <text x="450" y="282" text-anchor="middle" font-size="15.5" font-weight="600" fill="#F5F1E6">Agent &#8211; Tool-Use-Loop</text>
+  <text x="450" y="301" text-anchor="middle" font-size="11.5" fill="#CFD9E0">src/agent.py &#183; claude-sonnet-4-6</text>
+  <text x="450" y="317" text-anchor="middle" font-size="11" fill="#CFD9E0">max. 5 Iterationen &#183; entscheidet selbst, welches Tool passt</text>
+
+  <!-- Tool 1: dokumenten_suche -->
+  <rect x="60" y="380" width="250" height="58" rx="8" fill="#ffffff" stroke="#1b3a52" stroke-width="1.5"/>
+  <text x="185" y="404" text-anchor="middle" font-size="14" fill="#1B2A38">Tool: dokumenten_suche</text>
+  <text x="185" y="421" text-anchor="middle" font-size="11" fill="#5b6b76">src/rag.py (RAG)</text>
+
+  <!-- Tool 2: datenbank_abfrage -->
+  <rect x="590" y="380" width="250" height="58" rx="8" fill="#ffffff" stroke="#1b3a52" stroke-width="1.5"/>
+  <text x="715" y="404" text-anchor="middle" font-size="14" fill="#1B2A38">Tool: datenbank_abfrage</text>
+  <text x="715" y="421" text-anchor="middle" font-size="11" fill="#5b6b76">src/sql.py (Text-zu-SQL)</text>
+
+  <!-- Datastore 1: ChromaDB -->
+  <rect x="40" y="490" width="290" height="72" rx="8" fill="#EEF2F5" stroke="#1b3a52" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <text x="185" y="516" text-anchor="middle" font-size="13.5" fill="#1B2A38">ChromaDB Vektor-Index</text>
+  <text x="185" y="534" text-anchor="middle" font-size="11" fill="#5b6b76">paraphrase-multilingual-MiniLM-L12-v2</text>
+  <text x="185" y="550" text-anchor="middle" font-size="11" fill="#5b6b76">lokal, 384 Dim., Cosine-Similarity</text>
+
+  <!-- Datastore 2: SQLite -->
+  <rect x="570" y="490" width="290" height="72" rx="8" fill="#EEF2F5" stroke="#1b3a52" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <text x="715" y="516" text-anchor="middle" font-size="13.5" fill="#1B2A38">SQLite controlling.db</text>
+  <text x="715" y="534" text-anchor="middle" font-size="11" fill="#5b6b76">read-only (mode=ro)</text>
+  <text x="715" y="550" text-anchor="middle" font-size="11" fill="#5b6b76">nur SELECT/WITH &#8211; Schreib-Whitelist</text>
+
+  <!-- Pfeile Hauptfluss (bidirektional) -->
+  <line x1="450" y1="124" x2="450" y2="162" stroke="#1b3a52" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <line x1="450" y1="214" x2="450" y2="252" stroke="#1b3a52" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+
+  <!-- Agent <-> Tools -->
+  <line x1="360" y1="328" x2="210" y2="380" stroke="#1b3a52" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <line x1="540" y1="328" x2="690" y2="380" stroke="#1b3a52" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+
+  <!-- Tools <-> Datastores -->
+  <line x1="185" y1="438" x2="185" y2="490" stroke="#1b3a52" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <line x1="715" y1="438" x2="715" y2="490" stroke="#1b3a52" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+
+  <!-- Demo-Modus Annotation -->
+  <rect x="640" y="152" width="230" height="72" rx="8" fill="#FFF8E7" stroke="#C9A227" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <text x="755" y="174" text-anchor="middle" font-size="12" font-weight="600" fill="#6B5417">Demo-Modus</text>
+  <text x="755" y="190" text-anchor="middle" font-size="10.5" fill="#6B5417">ALPENBANK_DEMO_MODE=1</text>
+  <text x="755" y="205" text-anchor="middle" font-size="10.5" fill="#6B5417">spielt data/demo_cache.json ab &#8211;</text>
+  <text x="755" y="219" text-anchor="middle" font-size="10.5" fill="#6B5417">umgeht Agent/Claude komplett</text>
+  <line x1="640" y1="188" x2="580" y2="188" stroke="#C9A227" stroke-width="1.5" stroke-dasharray="3,3" marker-end="url(#arrow)"/>
+
+  <!-- Fussnote -->
+  <text x="450" y="630" text-anchor="middle" font-size="11" fill="#5b6b76">
+    Quellenangaben und ausgef&#252;hrtes SQL werden pro Tool-Aufruf transparent im UI angezeigt (ausklappbarer Trace).
+  </text>
+</svg>

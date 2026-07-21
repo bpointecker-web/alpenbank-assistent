@@ -64,9 +64,44 @@ CONTROLLING_PATH = Path("data/controlling.db")
 # set_page_config muss der erste Streamlit-Aufruf sein.
 st.set_page_config(page_title="Alpenbank-Assistent", page_icon="🏔️")
 
-st.title("🏔️ Alpenbank-Assistent")
+# Gebrandeter Header statt st.title(): kein echtes Logo vorhanden, daher
+# ein sauber gestalteter Text-Banner in der Bank-Farbpalette aus
+# .streamlit/config.toml (Petrol/Navy + Gold-Akzent). unsafe_allow_html
+# ist hier unkritisch, weil der HTML-Inhalt eine feste Konstante ist –
+# keine Nutzereingabe fließt hinein.
+st.markdown(
+    """
+    <style>
+    .alpenbank-header {
+        background: linear-gradient(135deg, #0f2a3d 0%, #1b3a52 100%);
+        color: #f5f1e6;
+        padding: 1.75rem 2rem;
+        border-radius: 0.5rem;
+        border-bottom: 3px solid #c9a227;
+        margin-bottom: 1.25rem;
+    }
+    .alpenbank-header h1 {
+        margin: 0;
+        font-size: 1.9rem;
+        color: #f5f1e6;
+    }
+    .alpenbank-header p {
+        margin: 0.35rem 0 0 0;
+        color: #cfd9e0;
+        font-size: 0.95rem;
+    }
+    </style>
+    <div class="alpenbank-header">
+        <h1>🏔️ Alpenbank-Assistent</h1>
+        <p>KI-Assistent für interne Richtlinien &amp; Controlling-Daten
+        &ndash; Agent mit Tool Use</p>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
 if DEMO_MODE:
-    st.caption("Agent mit Tool Use – Demo-Modus (kostenlos, ohne Live-API)")
+    st.caption("Demo-Modus – kostenlos, ohne Live-API")
     st.info(
         "**Demo-Modus:** Diese Instanz beantwortet nur die zehn "
         "Beispielfragen unten mit vorab aufgezeichneten, echten "
@@ -76,8 +111,6 @@ if DEMO_MODE:
         icon="🧪",
     )
 else:
-    st.caption("Agent mit Tool Use")
-
     # API-Key prüfen, bevor wir den Client bauen. Lieber sofort eine klare
     # Fehlermeldung als ein kryptischer Authentifizierungs-Fehler später.
     api_key = os.environ.get("ANTHROPIC_API_KEY")

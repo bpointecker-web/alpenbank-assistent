@@ -1,0 +1,107 @@
+<svg viewBox="0 0 1000 820" xmlns="http://www.w3.org/2000/svg" font-family="'Segoe UI', Arial, sans-serif">
+  <defs>
+    <marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1b3a52"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1000" height="820" fill="#ffffff"/>
+
+  <text x="500" y="28" text-anchor="middle" font-size="19" font-weight="700" fill="#1B2A38">
+    Sequenzdiagramm: eine Frage im Tool-Use-Loop
+  </text>
+  <text x="500" y="47" text-anchor="middle" font-size="12" fill="#5b6b76">
+    agent.answer_question() &#8211; Live-Modus (im Demo-Modus entf&#228;llt dieser gesamte Ablauf, siehe Architektur-Diagramm)
+  </text>
+
+  <!-- Akteur-Header -->
+  <g font-size="13.5" fill="#1B2A38">
+    <rect x="30"  y="66" width="140" height="40" rx="6" fill="#EEF2F5" stroke="#1B2A38"/>
+    <text x="100" y="91" text-anchor="middle">Nutzer</text>
+
+    <rect x="220" y="66" width="140" height="40" rx="6" fill="#EEF2F5" stroke="#1B2A38"/>
+    <text x="290" y="86" text-anchor="middle">Streamlit-UI</text>
+    <text x="290" y="100" text-anchor="middle" font-size="10.5" fill="#5b6b76">src/app.py</text>
+
+    <rect x="410" y="66" width="150" height="40" rx="6" fill="#0f2a3d" stroke="#C9A227" stroke-width="1.5"/>
+    <text x="485" y="86" text-anchor="middle" fill="#F5F1E6">Agent-Loop</text>
+    <text x="485" y="100" text-anchor="middle" font-size="10.5" fill="#CFD9E0">src/agent.py</text>
+
+    <rect x="610" y="66" width="150" height="40" rx="6" fill="#EEF2F5" stroke="#1B2A38"/>
+    <text x="685" y="86" text-anchor="middle">Claude</text>
+    <text x="685" y="100" text-anchor="middle" font-size="10.5" fill="#5b6b76">Anthropic-API</text>
+
+    <rect x="810" y="66" width="160" height="40" rx="6" fill="#ffffff" stroke="#1b3a52"/>
+    <text x="890" y="86" text-anchor="middle">Tool + Datenquelle</text>
+    <text x="890" y="100" text-anchor="middle" font-size="10.5" fill="#5b6b76">rag.py/sql.py + DB</text>
+  </g>
+
+  <!-- Lifelines -->
+  <g stroke="#B7C1C8" stroke-width="1.3" stroke-dasharray="4,3">
+    <line x1="100" y1="106" x2="100" y2="770"/>
+    <line x1="290" y1="106" x2="290" y2="770"/>
+    <line x1="485" y1="106" x2="485" y2="770"/>
+    <line x1="685" y1="106" x2="685" y2="770"/>
+    <line x1="890" y1="106" x2="890" y2="770"/>
+  </g>
+
+  <!-- Loop-Klammer -->
+  <rect x="450" y="228" width="470" height="315" fill="none" stroke="#C9A227" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <path d="M450,228 h60 v16 l-10,-8 z" fill="none"/>
+  <rect x="450" y="228" width="150" height="22" fill="#FFF8E7" stroke="#C9A227" stroke-width="1.5"/>
+  <text x="460" y="244" font-size="11" fill="#6B5417">loop &#8211; bis zu 5x (max_iterations)</text>
+
+  <!-- Schritte -->
+  <g font-size="12.5" fill="#1B2A38">
+    <!-- 1 -->
+    <text x="105" y="130">1. Frage eingeben</text>
+    <line x1="100" y1="140" x2="290" y2="140" stroke="#1b3a52" stroke-width="1.6" marker-end="url(#arrow2)"/>
+
+    <!-- 2 -->
+    <text x="295" y="164">2. answer_question(frage, history, ...)</text>
+    <line x1="290" y1="174" x2="485" y2="174" stroke="#1b3a52" stroke-width="1.6" marker-end="url(#arrow2)"/>
+
+    <!-- 3 -->
+    <text x="490" y="198">3. messages.create(tools=[...])</text>
+    <line x1="485" y1="208" x2="685" y2="208" stroke="#1b3a52" stroke-width="1.6" marker-end="url(#arrow2)"/>
+
+    <!-- 4 -->
+    <text x="490" y="266" text-anchor="end" transform="translate(195,0)">4. stop_reason: tool_use</text>
+    <line x1="685" y1="276" x2="485" y2="276" stroke="#1b3a52" stroke-width="1.6" stroke-dasharray="6,3" marker-end="url(#arrow2)"/>
+
+    <!-- 5 -->
+    <text x="490" y="308">5. execute_tool(name, input)</text>
+    <line x1="485" y1="318" x2="890" y2="318" stroke="#1b3a52" stroke-width="1.6" marker-end="url(#arrow2)"/>
+    <text x="700" y="336" font-size="10.5" fill="#5b6b76">(intern: ChromaDB-Suche oder SQLite-SELECT)</text>
+
+    <!-- 6 -->
+    <text x="700" y="368" text-anchor="middle">6. ToolErgebnis (Treffer / Tabelle)</text>
+    <line x1="890" y1="378" x2="485" y2="378" stroke="#1b3a52" stroke-width="1.6" stroke-dasharray="6,3" marker-end="url(#arrow2)"/>
+
+    <!-- 7 -->
+    <text x="490" y="410">7. tool_result senden</text>
+    <line x1="485" y1="420" x2="685" y2="420" stroke="#1b3a52" stroke-width="1.6" marker-end="url(#arrow2)"/>
+
+    <!-- Hinweis im Loop: Wiederholung bei kombinierten Fragen -->
+    <text x="700" y="450" text-anchor="middle" font-size="11" fill="#5b6b76">
+      (bei kombinierten Fragen wiederholen sich Schritte 3&#8211;7 f&#252;r das zweite Tool)
+    </text>
+
+    <!-- 8 -->
+    <text x="490" y="500" text-anchor="end" transform="translate(195,0)">8. stop_reason: end_turn + Text</text>
+    <line x1="685" y1="510" x2="485" y2="510" stroke="#1b3a52" stroke-width="1.6" stroke-dasharray="6,3" marker-end="url(#arrow2)"/>
+
+    <!-- 9 -->
+    <text x="295" y="618" text-anchor="middle">9. AgentAntwort (text, traces, iterations_used)</text>
+    <line x1="485" y1="628" x2="290" y2="628" stroke="#1b3a52" stroke-width="1.6" stroke-dasharray="6,3" marker-end="url(#arrow2)"/>
+
+    <!-- 10 -->
+    <text x="105" y="670">10. Antwort + Tool-Trace anzeigen</text>
+    <line x1="290" y1="680" x2="100" y2="680" stroke="#1b3a52" stroke-width="1.6" marker-end="url(#arrow2)"/>
+  </g>
+
+  <!-- Fussnote -->
+  <text x="500" y="800" text-anchor="middle" font-size="11" fill="#5b6b76">
+    Iterationslimit (5) schuetzt vor Endlosschleifen &#8211; wird es erreicht, gibt der Agent einen Hinweistext statt einer finalen Antwort zurueck.
+  </text>
+</svg>
