@@ -7,8 +7,8 @@ oder beides kombiniert. Ursprünglich als Lernprojekt gebaut (Details siehe
 `KONZEPT.md`, Arbeitsregeln siehe `CLAUDE.md`), mittlerweile Teil eines
 AI-Architektur-Showrooms.
 
-**➡️ Live-Demo:** *wird nach dem Streamlit-Cloud-Deploy hier verlinkt –
-kostenlos, kein API-Key nötig, siehe Abschnitt "Demo-Modus"*
+**[➡️ Live-Demo ausprobieren](https://alpenbank.streamlit.app/)** *(kostenlos,
+kein API-Key nötig, siehe Abschnitt "Demo-Modus")*
 
 ## Architektur
 
