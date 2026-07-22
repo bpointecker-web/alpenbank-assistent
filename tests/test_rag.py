@@ -9,11 +9,15 @@ durch Tests nicht verändert werden.
 from __future__ import annotations
 
 import os
+import shutil
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
 from src import rag
+
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
 # ---------------------------------------------------------------------------
@@ -50,7 +54,7 @@ class TestLoadDocuments:
     def test_randfall_leerer_ordner_gibt_leere_liste(self, tmp_path):
         assert rag.load_documents(tmp_path) == []
 
-    def test_randfall_nicht_txt_dateien_werden_ignoriert(self, tmp_path):
+    def test_randfall_nicht_unterstuetzte_dateien_werden_ignoriert(self, tmp_path):
         (tmp_path / "richtlinie.txt").write_text("ja", encoding="utf-8")
         (tmp_path / "README.md").write_text("nein", encoding="utf-8")
         (tmp_path / "bild.png").write_bytes(b"\x89PNG")
@@ -70,6 +74,47 @@ class TestLoadDocuments:
 
         with pytest.raises(NotADirectoryError, match="kein Ordner"):
             rag.load_documents(datei)
+
+    def test_normalfall_pdf_datei_wird_gelesen(self, tmp_path):
+        shutil.copy(FIXTURES_DIR / "beispiel.pdf", tmp_path / "beispiel.pdf")
+
+        result = rag.load_documents(tmp_path)
+
+        assert len(result) == 1
+        assert result[0]["quelle"] == "beispiel.pdf"
+        assert "Testrichtlinie" in result[0]["inhalt"]
+        assert "Umlauten" in result[0]["inhalt"]
+
+    def test_normalfall_txt_und_pdf_gemeinsam_sortiert(self, tmp_path):
+        (tmp_path / "b_dokument.txt").write_text("Text-Inhalt", encoding="utf-8")
+        shutil.copy(FIXTURES_DIR / "beispiel.pdf", tmp_path / "a_dokument.pdf")
+
+        result = rag.load_documents(tmp_path)
+
+        assert [d["quelle"] for d in result] == ["a_dokument.pdf", "b_dokument.txt"]
+
+    def test_randfall_pdf_ohne_extrahierbaren_text(self, tmp_path):
+        # Ein valides PDF mit einer leeren Seite - pypdf liefert dafür
+        # keinen Fehler, sondern einen leeren String. Das ist keine
+        # defekte Datei, sondern schlicht ein Dokument ohne Text (z. B.
+        # ein eingescanntes Bild ohne OCR-Schicht).
+        from pypdf import PdfWriter
+
+        writer = PdfWriter()
+        writer.add_blank_page(width=200, height=200)
+        pdf_pfad = tmp_path / "leer.pdf"
+        with pdf_pfad.open("wb") as datei:
+            writer.write(datei)
+
+        result = rag.load_documents(tmp_path)
+
+        assert result == [{"quelle": "leer.pdf", "inhalt": ""}]
+
+    def test_fehlerfall_korruptes_pdf(self, tmp_path):
+        shutil.copy(FIXTURES_DIR / "kaputt.pdf", tmp_path / "kaputt.pdf")
+
+        with pytest.raises(ValueError, match="kein lesbares PDF"):
+            rag.load_documents(tmp_path)
 
 
 # ---------------------------------------------------------------------------

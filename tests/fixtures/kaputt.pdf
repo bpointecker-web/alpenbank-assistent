@@ -1,0 +1,1 @@
+Das ist kein echtes PDF - fehlt der %PDF-Header und die interne Struktur, damit pypdf beim Lesen einen Fehler wirft.

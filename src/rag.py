@@ -17,9 +17,10 @@ from typing import Any
 
 from src.settings import SETTINGS
 
-# Erweiterung der Dokumentdateien. Konstante, weil sie an mehreren Stellen
-# auftauchen wird (Loading, mögliche spätere Filter beim Indexlauf).
-DOKUMENT_ENDUNG = ".txt"
+# Erweiterungen der Dokumentdateien, die load_documents() liest. Tupel statt
+# einzelner Konstante seit Stage 2.3 (PDF-Ingestion) – reale Bank-Dokumente
+# sind praktisch nie reiner Fließtext ohne Formatierung.
+DOKUMENT_ENDUNGEN = (".txt", ".pdf")
 
 # Chunking-Parameter, konfigurierbar über SETTINGS (src/settings.py,
 # ALPENBANK_WOERTER_PRO_CHUNK/ALPENBANK_WORT_OVERLAP). Overlap verhindert,
@@ -39,8 +40,34 @@ EMBEDDING_MODELL = "paraphrase-multilingual-MiniLM-L12-v2"
 COLLECTION_NAME = "alpenbank_dokumente"
 
 
+def _lies_pdf(pfad: Path) -> str:
+    """Extrahiert den Text aus einem PDF-Dokument.
+
+    Lazy-Import von ``pypdf``, analog zu ``get_default_embedding_function``
+    weiter unten – der Import von ``rag.py`` soll nicht zwangsweise
+    ``pypdf`` ins RAM ziehen, wenn nur mit ``.txt``-Dokumenten gearbeitet
+    wird.
+
+    Verbindet den Text aller Seiten mit doppeltem Zeilenumbruch (trennt
+    Seiten sauber, ohne Wörter zusammenzukleben). Wirft ``ValueError``, wenn
+    die Datei kein lesbares PDF ist – ein defektes PDF im Ordner soll nicht
+    stillschweigend übersprungen werden, das wäre ein stiller Datenverlust
+    im Index.
+    """
+    from pypdf import PdfReader
+    from pypdf.errors import PyPdfError
+
+    try:
+        reader = PdfReader(str(pfad))
+        seiten_text = [seite.extract_text() or "" for seite in reader.pages]
+    except PyPdfError as exc:
+        raise ValueError(f"Datei ist kein lesbares PDF: {pfad}") from exc
+
+    return "\n\n".join(seiten_text)
+
+
 def load_documents(ordner_pfad: str | Path) -> list[dict[str, str]]:
-    """Liest alle Textdateien eines Ordners ein.
+    """Liest alle Dokumentdateien eines Ordners ein (``.txt`` und ``.pdf``).
 
     Gibt eine Liste von ``{"quelle": dateiname, "inhalt": text}`` zurück,
     sortiert nach Dateinamen. Die Sortierung sorgt für deterministische
@@ -48,9 +75,11 @@ def load_documents(ordner_pfad: str | Path) -> list[dict[str, str]]:
     sind.
 
     Wir lesen ausschließlich Dateien direkt im Ordner (keine Unterordner)
-    und nur Dateien mit Endung ``.txt``. Andere Dateien werden ignoriert,
-    nicht etwa als Fehler gewertet – so kann später z. B. ein README im
-    selben Ordner liegen, ohne den Indexlauf zu sprengen.
+    und nur Dateien mit einer Endung aus ``DOKUMENT_ENDUNGEN``. Andere
+    Dateien werden ignoriert, nicht etwa als Fehler gewertet – so kann
+    später z. B. ein README im selben Ordner liegen, ohne den Indexlauf zu
+    sprengen. Ein PDF, das sich nicht lesen lässt, ist dagegen ein Fehler
+    (siehe ``_lies_pdf``) und wird nicht stillschweigend übersprungen.
 
     Wirft ``FileNotFoundError``, wenn der Pfad nicht existiert, und
     ``NotADirectoryError``, wenn der Pfad auf eine Datei zeigt. Beides
@@ -66,11 +95,16 @@ def load_documents(ordner_pfad: str | Path) -> list[dict[str, str]]:
 
     dokumente: list[dict[str, str]] = []
     for datei in sorted(pfad.iterdir()):
-        if not datei.is_file() or datei.suffix.lower() != DOKUMENT_ENDUNG:
+        if not datei.is_file() or datei.suffix.lower() not in DOKUMENT_ENDUNGEN:
             continue
-        # utf-8 ist Pflicht für deutsche Umlaute; ohne explizite Angabe
-        # nimmt Python unter Windows sonst die System-Codepage (cp1252).
-        inhalt = datei.read_text(encoding="utf-8")
+
+        if datei.suffix.lower() == ".pdf":
+            inhalt = _lies_pdf(datei)
+        else:
+            # utf-8 ist Pflicht für deutsche Umlaute; ohne explizite Angabe
+            # nimmt Python unter Windows sonst die System-Codepage (cp1252).
+            inhalt = datei.read_text(encoding="utf-8")
+
         dokumente.append({"quelle": datei.name, "inhalt": inhalt})
 
     return dokumente
