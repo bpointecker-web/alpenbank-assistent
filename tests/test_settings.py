@@ -21,11 +21,11 @@ class TestLoadSettings:
         result = settings.load_settings({})
 
         assert result == settings.Settings(
-            woerter_pro_chunk=500,
-            wort_overlap=50,
+            woerter_pro_chunk=150,
+            wort_overlap=30,
             n_results=5,
             model="claude-sonnet-4-6",
-            max_tokens=1024,
+            max_tokens=2048,
             max_iterations=5,
         )
 
@@ -33,7 +33,7 @@ class TestLoadSettings:
         result = settings.load_settings({"ALPENBANK_MAX_TOKENS": "2048"})
 
         assert result.max_tokens == 2048
-        assert result.woerter_pro_chunk == 500
+        assert result.woerter_pro_chunk == 150
         assert result.model == "claude-sonnet-4-6"
 
     def test_normalfall_alle_werte_ueberschrieben(self):
@@ -70,7 +70,7 @@ class TestLoadSettings:
 
         result = settings.load_settings(None)
 
-        assert result.woerter_pro_chunk == 500
+        assert result.woerter_pro_chunk == 150
 
     def test_fehlerfall_nicht_numerischer_wert(self):
         with pytest.raises(ValueError, match="gültige Ganzzahl"):

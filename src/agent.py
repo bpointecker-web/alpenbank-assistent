@@ -28,8 +28,9 @@ from src.settings import SETTINGS
 MODEL = SETTINGS.model
 
 # Maximale Antwortlänge pro Claude-Aufruf in Tokens, konfigurierbar über
-# SETTINGS (ALPENBANK_MAX_TOKENS). 1024 (Default) reicht für die
-# Demo-Fragen mit Markdown-Tabelle als Tool-Result.
+# SETTINGS (ALPENBANK_MAX_TOKENS). 2048 (Default) reicht auch für
+# kombinierte Demo-Fragen mit mehreren Tool-Aufrufen und Markdown-Tabelle
+# als Tool-Result.
 MAX_TOKENS = SETTINGS.max_tokens
 
 # Standard-Iterationslimit für den Tool-Use-Loop, konfigurierbar über

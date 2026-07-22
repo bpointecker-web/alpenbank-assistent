@@ -28,13 +28,23 @@ class Settings(NamedTuple):
     max_iterations: int
 
 
-# Defaults entsprechen dem Ist-Zustand vor Stage 2 (unveränderte
-# Rückwärtskompatibilität, solange keine Env-Variablen gesetzt sind).
-_DEFAULT_WOERTER_PRO_CHUNK = 500
-_DEFAULT_WORT_OVERLAP = 50
+# Chunk-Größe seit Stage 2.2: 150 Wörter/30 Overlap statt vormals 500/50.
+# Bei den fünf (später sechs) Corpus-Dokumenten mit 275-323 Wörtern ergab
+# 500/50 genau 1 Chunk pro Dokument – Retrieval war damit nie granularer
+# als "ganzes Dokument", Overlap kam nie zum Tragen. 150/30 ergibt 3
+# Chunks/Dokument in diesem Größenbereich, der letzte Chunk bleibt mit
+# 35-90 Wörtern noch sinnvoll groß. Siehe scripts/rag_inspect.py zur
+# manuellen QA der Chunk-Grenzen nach einer Änderung dieser Werte.
+_DEFAULT_WOERTER_PRO_CHUNK = 150
+_DEFAULT_WORT_OVERLAP = 30
 _DEFAULT_N_RESULTS = 5
 _DEFAULT_MODEL = "claude-sonnet-4-6"
-_DEFAULT_MAX_TOKENS = 1024
+# 2048 statt vormals 1024: seit dem kleineren Chunking (Stage 2.2) braucht
+# Claude bei kombinierten Fragen mit mehreren Tool-Aufrufen mehr Tokens,
+# um Zahlen (SQL) und Regeln (RAG) in einer Antwort zusammenzuführen –
+# mit 1024 brach eine Demo-Antwort nachweislich mit stop_reason=max_tokens
+# vorzeitig ab (siehe scripts/demo_cache_erzeugen.py-Lauf nach 2.2).
+_DEFAULT_MAX_TOKENS = 2048
 _DEFAULT_MAX_ITERATIONS = 5
 
 
