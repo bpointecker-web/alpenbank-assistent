@@ -22,22 +22,21 @@ import sqlite3
 from typing import Any, NamedTuple
 
 from src import rag, sql
+from src.settings import SETTINGS
 
-# Modell-Konstante: zentrale Stelle, falls wir das Modell später wechseln.
-# Bewusst hier dupliziert (statt aus chat.py importiert), weil ``chat.py``
-# in Phase 3 entkernt oder gelöscht wird – ``agent.py`` soll danach für
-# sich allein lauffähig sein.
-MODEL = "claude-sonnet-4-6"
+# Modell-Konstante, konfigurierbar über SETTINGS (ALPENBANK_MODEL).
+MODEL = SETTINGS.model
 
-# Maximale Antwortlänge pro Claude-Aufruf in Tokens. 1024 reicht für die
-# Demo-Fragen mit Markdown-Tabelle als Tool-Result; bei Bedarf später
-# erhöhen.
-MAX_TOKENS = 1024
+# Maximale Antwortlänge pro Claude-Aufruf in Tokens, konfigurierbar über
+# SETTINGS (ALPENBANK_MAX_TOKENS). 1024 (Default) reicht für die
+# Demo-Fragen mit Markdown-Tabelle als Tool-Result.
+MAX_TOKENS = SETTINGS.max_tokens
 
-# Standard-Iterationslimit für den Tool-Use-Loop. 5 ist großzügig für
+# Standard-Iterationslimit für den Tool-Use-Loop, konfigurierbar über
+# SETTINGS (ALPENBANK_MAX_ITERATIONS). 5 (Default) ist großzügig für
 # kombinierte Demo-Fragen (SQL plus RAG hintereinander) und knapp genug,
 # um Endlosschleifen früh zu stoppen. Pro Aufruf überschreibbar.
-DEFAULT_MAX_ITERATIONS = 5
+DEFAULT_MAX_ITERATIONS = SETTINGS.max_iterations
 
 
 class ToolErgebnis(NamedTuple):

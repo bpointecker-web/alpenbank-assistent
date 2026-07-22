@@ -15,16 +15,18 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from src.settings import SETTINGS
+
 # Erweiterung der Dokumentdateien. Konstante, weil sie an mehreren Stellen
 # auftauchen wird (Loading, mögliche spätere Filter beim Indexlauf).
 DOKUMENT_ENDUNG = ".txt"
 
-# Chunking-Parameter laut Konzept und bestätigter Entscheidung:
-# 500 Wörter pro Chunk mit 50 Wörtern Überlappung. Overlap verhindert,
+# Chunking-Parameter, konfigurierbar über SETTINGS (src/settings.py,
+# ALPENBANK_WOERTER_PRO_CHUNK/ALPENBANK_WORT_OVERLAP). Overlap verhindert,
 # dass eine inhaltlich zusammengehörige Passage genau an einer Chunk-
 # Grenze zerrissen wird – dann fände die Suche einen halben Treffer.
-WOERTER_PRO_CHUNK = 500
-WORT_OVERLAP = 50
+WOERTER_PRO_CHUNK = SETTINGS.woerter_pro_chunk
+WORT_OVERLAP = SETTINGS.wort_overlap
 
 # Mehrsprachiges Sentence-Transformer-Modell. Bewusst gewählt, weil unsere
 # Dokumente deutsch sind und das ChromaDB-Default-Modell (all-MiniLM-L6-v2)
@@ -267,9 +269,9 @@ def index_chunks(collection: Any, chunks: list[dict[str, str]]) -> int:
     return len(chunks)
 
 
-# Anzahl der Treffer, die wir bei einer Suche standardmäßig zurückgeben.
-# Laut Konzept: die fünf ähnlichsten Abschnitte landen als Kontext bei Claude.
-DEFAULT_N_RESULTS = 5
+# Anzahl der Treffer, die wir bei einer Suche standardmäßig zurückgeben,
+# konfigurierbar über SETTINGS (ALPENBANK_N_RESULTS).
+DEFAULT_N_RESULTS = SETTINGS.n_results
 
 
 def search(
