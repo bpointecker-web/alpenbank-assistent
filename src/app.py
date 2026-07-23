@@ -40,6 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import chromadb  # noqa: E402
 import streamlit as st  # noqa: E402
+import streamlit.components.v1 as components  # noqa: E402
 from anthropic import Anthropic  # noqa: E402
 from dotenv import load_dotenv  # noqa: E402
 
@@ -584,3 +585,31 @@ try:
 except Exception:
     logger.exception("Governance-Panel konnte nicht gerendert werden")
     st.caption("ℹ️ Governance-Panel momentan nicht verfügbar.")
+
+
+# Streamlit steckt die Hauptspalte wegen st.chat_input in einen
+# ``stAppScrollToBottomContainer`` und scrollt diesen beim Laden
+# automatisch ganz nach unten (Chat-Verhalten: Eingabefeld sichtbar
+# halten). Bei unserer hohen Einordnungs-Box landet dadurch der Header
+# außerhalb des sichtbaren Bereichs. Nur im Anfangszustand (noch keine
+# Frage gestellt) scrollen wir den Container aktiv wieder nach oben,
+# damit der Besucher zuerst die Erklärung sieht. Sobald Nachrichten
+# existieren, überlassen wir Streamlit das Scroll-to-bottom – dann will
+# man ja die frische Antwort unten sehen. Der Container braucht nach
+# Streamlits eigenem Scroll kurz Zeit, deshalb ein paar Wiederholungen.
+if not st.session_state.messages:
+    components.html(
+        """
+        <script>
+        const doc = window.parent.document;
+        const nachOben = () => {
+            const c = doc.querySelector('[data-testid="stAppScrollToBottomContainer"]');
+            if (c) { c.scrollTop = 0; }
+        };
+        nachOben();
+        let n = 0;
+        const iv = setInterval(() => { nachOben(); if (++n > 12) clearInterval(iv); }, 60);
+        </script>
+        """,
+        height=0,
+    )
