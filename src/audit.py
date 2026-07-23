@@ -23,6 +23,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, NamedTuple
 
+from src import pii
+
 # Bewusst unter data/ (bereits gitignored für generierte/laufzeitspezifische
 # Artefakte) statt versioniert – ein Audit-Log ist Laufzeit-Historie einer
 # konkreten Instanz, kein Quellcode.
@@ -60,6 +62,13 @@ def baue_audit_eintrag(frage: str, antwort: Any, modell: str) -> AuditEintrag:
     der Tool-Aufrufe gesammelt: gerade ein abgelehnter Schreibversuch
     (z. B. "DELETE FROM buchungen") ist ein audit-relevanter Vorgang,
     kein Grund zum Weglassen.
+
+    Die persistierte Frage wird per ``pii.redigiere`` bereinigt (Stage
+    4.5): anders als der kontrollierte Dokumenten-Corpus ist die
+    Nutzerfrage Freitext und könnte versehentlich eingetippte
+    personenbezogene Daten enthalten. Die an Claude gesendete
+    Originalfrage bleibt davon unberührt – nur diese gespeicherte Kopie
+    wird bereinigt.
     """
     tool_aufrufe: list[dict[str, Any]] = []
     quellen: list[str] = []
@@ -87,7 +96,7 @@ def baue_audit_eintrag(frage: str, antwort: Any, modell: str) -> AuditEintrag:
 
     return AuditEintrag(
         zeitstempel=datetime.now(timezone.utc).isoformat(),
-        frage=frage,
+        frage=pii.redigiere(frage),
         tool_aufrufe=tool_aufrufe,
         quellen=quellen,
         sql_statements=sql_statements,

@@ -102,6 +102,17 @@ class TestBaueAuditEintrag:
         assert eintrag.sql_statements == []
         assert eintrag.tool_aufrufe == []
 
+    def test_normalfall_pii_in_der_frage_wird_redigiert(self):
+        # Stage 4.5: die Nutzerfrage ist Freitext und koennte
+        # versehentlich eingetippte PII enthalten - im Audit-Log darf
+        # sie nicht im Klartext landen.
+        frage = "Bitte antworte an kontakt@alpenbank.at"
+
+        eintrag = audit.baue_audit_eintrag(frage, _antwort([]), "modell")
+
+        assert "kontakt@alpenbank.at" not in eintrag.frage
+        assert "[REDIGIERT: E-Mail]" in eintrag.frage
+
     def test_randfall_dokumenten_suche_ohne_details_bricht_nicht_ab(self):
         # Bei einem Eingabe-Fehler (z. B. leere Frage) ist details=None -
         # baue_audit_eintrag muss das tolerieren, nicht abstürzen.
