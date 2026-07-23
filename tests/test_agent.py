@@ -106,16 +106,22 @@ def make_test_db() -> sqlite3.Connection:
 # macht die Tests gut lesbar und entkoppelt sie von der echten SDK.
 
 
-def make_text_response(text: str):
+def make_usage(input_tokens: int = 0, output_tokens: int = 0):
+    """Baut ein ``usage``-Objekt wie die echte Anthropic-Antwort."""
+    return SimpleNamespace(input_tokens=input_tokens, output_tokens=output_tokens)
+
+
+def make_text_response(text: str, usage=None):
     """Antwort mit ``stop_reason='end_turn'`` und einem Textblock."""
     return SimpleNamespace(
         stop_reason="end_turn",
         content=[SimpleNamespace(type="text", text=text)],
+        usage=usage if usage is not None else make_usage(),
     )
 
 
 def make_tool_use_response(
-    tool_use_id: str, tool_name: str, tool_input: dict
+    tool_use_id: str, tool_name: str, tool_input: dict, usage=None
 ):
     """Antwort mit ``stop_reason='tool_use'`` und einem Tool-Use-Block."""
     return SimpleNamespace(
@@ -128,10 +134,11 @@ def make_tool_use_response(
                 input=tool_input,
             )
         ],
+        usage=usage if usage is not None else make_usage(),
     )
 
 
-def make_multi_tool_use_response(blocks: list[tuple[str, str, dict]]):
+def make_multi_tool_use_response(blocks: list[tuple[str, str, dict]], usage=None):
     """Antwort mit mehreren Tool-Use-Blöcken in einer einzigen Response.
 
     ``blocks`` ist eine Liste von Tripeln ``(tool_use_id, tool_name,
@@ -149,12 +156,17 @@ def make_multi_tool_use_response(blocks: list[tuple[str, str, dict]]):
             )
             for tool_use_id, tool_name, tool_input in blocks
         ],
+        usage=usage if usage is not None else make_usage(),
     )
 
 
-def make_unexpected_response(stop_reason: str = "max_tokens"):
+def make_unexpected_response(stop_reason: str = "max_tokens", usage=None):
     """Antwort mit unerwartetem Stop-Grund für den defensiven Abbruch."""
-    return SimpleNamespace(stop_reason=stop_reason, content=[])
+    return SimpleNamespace(
+        stop_reason=stop_reason,
+        content=[],
+        usage=usage if usage is not None else make_usage(),
+    )
 
 
 class MockClient:
@@ -837,3 +849,113 @@ class TestAnswerQuestion:
                 rag_index=None,
                 schema="<dummy/>",
             )
+
+
+# ---------------------------------------------------------------------------
+# answer_question – Token-Tracking (Stage 4: Grundlage für Audit-Log/Budget)
+# ---------------------------------------------------------------------------
+
+
+class TestAnswerQuestionTokenTracking:
+    def test_normalfall_direkter_text_uebernimmt_usage(self):
+        client = MockClient(
+            [make_text_response("ok", usage=make_usage(input_tokens=120, output_tokens=40))]
+        )
+
+        antwort = agent.answer_question(
+            client,
+            frage="x",
+            history=[],
+            db=None,
+            rag_index=None,
+            schema="<dummy/>",
+        )
+
+        assert antwort.input_tokens == 120
+        assert antwort.output_tokens == 40
+
+    def test_normalfall_mehrere_iterationen_summieren_tokens(self):
+        # Ein Tool-Aufruf plus die finale Antwort sind zwei Claude-
+        # Aufrufe - das Session-Budget muss beide sehen, nicht nur den
+        # letzten.
+        db = make_test_db()
+        try:
+            client = MockClient(
+                [
+                    make_tool_use_response(
+                        "tu_001",
+                        "datenbank_abfrage",
+                        {"sql": "SELECT name FROM konten"},
+                        usage=make_usage(input_tokens=100, output_tokens=20),
+                    ),
+                    make_text_response(
+                        "fertig",
+                        usage=make_usage(input_tokens=150, output_tokens=30),
+                    ),
+                ]
+            )
+
+            antwort = agent.answer_question(
+                client,
+                frage="x",
+                history=[],
+                db=db,
+                rag_index=None,
+                schema="<dummy/>",
+            )
+        finally:
+            db.close()
+
+        assert antwort.input_tokens == 250
+        assert antwort.output_tokens == 50
+
+    def test_randfall_antwort_ohne_usage_attribut_faellt_auf_null_zurueck(self):
+        # Defensive Fallback: ein Response-Objekt komplett ohne
+        # ``usage``-Attribut (z. B. ein unvollständiger Mock) darf den
+        # Loop nicht zum Absturz bringen.
+        response_ohne_usage = SimpleNamespace(
+            stop_reason="end_turn",
+            content=[SimpleNamespace(type="text", text="ok")],
+        )
+        client = MockClient([response_ohne_usage])
+
+        antwort = agent.answer_question(
+            client,
+            frage="x",
+            history=[],
+            db=None,
+            rag_index=None,
+            schema="<dummy/>",
+        )
+
+        assert antwort.input_tokens == 0
+        assert antwort.output_tokens == 0
+
+    def test_randfall_iterationslimit_erreicht_liefert_trotzdem_tokens(self):
+        client = MockClient(
+            [
+                make_tool_use_response(
+                    f"tu_{i}",
+                    "dokumenten_suche",
+                    {"frage": "x"},
+                    usage=make_usage(input_tokens=10, output_tokens=5),
+                )
+                for i in range(2)
+            ]
+        )
+        rag_index = make_rag_index(
+            [{"id": "x", "quelle": "q", "inhalt": "Inhalt", "distanz": 0.5}]
+        )
+
+        antwort = agent.answer_question(
+            client,
+            frage="x",
+            history=[],
+            db=None,
+            rag_index=rag_index,
+            schema="<dummy/>",
+            max_iterations=2,
+        )
+
+        assert antwort.input_tokens == 20
+        assert antwort.output_tokens == 10

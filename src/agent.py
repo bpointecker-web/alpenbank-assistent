@@ -86,11 +86,20 @@ class AgentAntwort(NamedTuple):
     * ``iterations_used``: wie viele Schleifendurchläufe der Loop
       tatsächlich gebraucht hat (1..max_iterations). Erlaubt der UI
       eine Limit-Warnung und ist für spätere Telemetrie nützlich.
+    * ``input_tokens``/``output_tokens``: über alle Iterationen
+      kumulierte Token-Zahlen (Stage 4 – Grundlage für Audit-Log und
+      Session-Budget). Default 0, damit bestehende Aufrufer (u. a.
+      ``app.py``s Demo-Modus-Fallback, der ``AgentAntwort`` ohne
+      Live-API-Aufruf direkt konstruiert) unverändert funktionieren –
+      0 Tokens ist dort auch semantisch korrekt, weil kein echter
+      API-Call stattfand.
     """
 
     text: str
     traces: list[ToolCallTrace]
     iterations_used: int
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 
 # System-Prompt für den Tool-Use-Agenten.
@@ -359,6 +368,21 @@ def _extract_text_blocks(response: Any) -> str:
     return "".join(teile)
 
 
+def _extract_usage(response: Any) -> tuple[int, int]:
+    """Liest Input-/Output-Token-Zahlen aus einer Claude-Antwort.
+
+    Defensive Implementierung wie ``_extract_text_blocks``: Fehlt das
+    ``usage``-Attribut (z. B. bei einem unvollständigen Test-Mock),
+    nehmen wir 0 an statt eine Exception zu werfen – Token-Tracking
+    (Stage 4, Audit-Log/Budget) soll den eigentlichen Loop nie zum
+    Absturz bringen.
+    """
+    usage = getattr(response, "usage", None)
+    input_tokens = getattr(usage, "input_tokens", 0) or 0
+    output_tokens = getattr(usage, "output_tokens", 0) or 0
+    return input_tokens, output_tokens
+
+
 def answer_question(
     client: Any,
     frage: str,
@@ -400,6 +424,8 @@ def answer_question(
         {"role": "user", "content": frage}
     ]
     traces: list[ToolCallTrace] = []
+    input_tokens_gesamt = 0
+    output_tokens_gesamt = 0
 
     for iteration in range(max_iterations):
         response = client.messages.create(
@@ -410,6 +436,13 @@ def answer_question(
             messages=messages,
         )
 
+        # Über alle Iterationen kumulieren – ein Multi-Tool-Turn braucht
+        # mehrere Claude-Aufrufe, das Session-Budget (Stage 4) soll die
+        # Summe sehen, nicht nur den letzten Aufruf.
+        it_input_tokens, it_output_tokens = _extract_usage(response)
+        input_tokens_gesamt += it_input_tokens
+        output_tokens_gesamt += it_output_tokens
+
         stop_reason = getattr(response, "stop_reason", None)
 
         if stop_reason == "end_turn":
@@ -418,6 +451,8 @@ def answer_question(
                 text=text,
                 traces=traces,
                 iterations_used=iteration + 1,
+                input_tokens=input_tokens_gesamt,
+                output_tokens=output_tokens_gesamt,
             )
 
         if stop_reason == "tool_use":
@@ -467,6 +502,8 @@ def answer_question(
             ),
             traces=traces,
             iterations_used=iteration + 1,
+            input_tokens=input_tokens_gesamt,
+            output_tokens=output_tokens_gesamt,
         )
 
     # Schleife bis zum Ende durchgelaufen → Iterationslimit erreicht.
@@ -481,4 +518,6 @@ def answer_question(
         ),
         traces=traces,
         iterations_used=max_iterations,
+        input_tokens=input_tokens_gesamt,
+        output_tokens=output_tokens_gesamt,
     )
