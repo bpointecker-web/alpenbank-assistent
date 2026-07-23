@@ -146,7 +146,25 @@ def lies_audit_log(
     return eintraege
 
 
-def session_zusammenfassung(messages: list[dict[str, Any]]) -> dict[str, Any]:
+def _feld(obj: Any, name: str) -> Any:
+    """Liest ein Feld robust – egal ob ``obj`` ein NamedTuple oder ein dict ist.
+
+    Der Grund für diese Duldsamkeit: Traces liegen im Normalfall als
+    ``agent.ToolCallTrace``-NamedTuples in ``st.session_state.messages``.
+    Auf Streamlit Community Cloud kann der Session-State aber über
+    Prozess-/Reconnect-Grenzen hinweg gehalten werden; verlässt man sich
+    dort hart auf den NamedTuple-Attributzugriff (``trace.name``), reicht
+    eine einzige abweichende Objektform (z. B. ein dict), um das ganze
+    Governance-Panel – und damit die App – abstürzen zu lassen. Diese
+    Funktion greift für beide Formen und liefert ``None`` bei allem
+    anderen, statt eine ``AttributeError`` zu werfen.
+    """
+    if isinstance(obj, dict):
+        return obj.get(name)
+    return getattr(obj, name, None)
+
+
+def session_zusammenfassung(messages: list[Any]) -> dict[str, Any]:
     """Fasst Governance-relevante Kennzahlen der aktuellen UI-Session zusammen.
 
     Arbeitet direkt auf der Chat-Historie (``st.session_state.messages``),
@@ -157,25 +175,33 @@ def session_zusammenfassung(messages: list[dict[str, Any]]) -> dict[str, Any]:
     so auch im Demo-Modus zeigen, was in der aktuellen Sitzung passiert
     ist, ohne dass dafür ein echtes Audit-Log nötig wäre.
 
-    Erwartet Assistant-Nachrichten mit einem ``"traces"``-Schlüssel
-    (Liste von ``agent.ToolCallTrace``), wie ``app.py`` sie in
-    ``st.session_state.messages`` ablegt. Fehlt der Schlüssel (z. B. bei
-    User-Nachrichten), wird die Nachricht übersprungen statt einen
-    Fehler zu werfen.
+    Bewusst durchgängig defensiv (``isinstance``/``_feld``): ein
+    Governance-/Telemetrie-Panel darf die App unter keinen Umständen zum
+    Absturz bringen. Nachrichten, die keine dicts sind, Traces ohne die
+    erwarteten Felder oder Treffer, die keine dicts sind, werden
+    übersprungen statt zu einem Fehler zu führen.
     """
-    anzahl_fragen = sum(1 for msg in messages if msg.get("role") == "user")
+    anzahl_fragen = 0
     quellen: list[str] = []
     guardrail_hinweise: list[str] = []
 
     for msg in messages:
-        for trace in msg.get("traces", []):
-            if trace.name != "dokumenten_suche":
+        if not isinstance(msg, dict):
+            continue
+        if msg.get("role") == "user":
+            anzahl_fragen += 1
+
+        for trace in msg.get("traces") or []:
+            if _feld(trace, "name") != "dokumenten_suche":
                 continue
-            for eintrag in trace.ergebnis.details or []:
+            ergebnis = _feld(trace, "ergebnis")
+            for eintrag in _feld(ergebnis, "details") or []:
+                if not isinstance(eintrag, dict):
+                    continue
                 quelle = eintrag.get("quelle")
                 if quelle and quelle not in quellen:
                     quellen.append(quelle)
-                for muster in eintrag.get("guardrail_hinweise", []):
+                for muster in eintrag.get("guardrail_hinweise") or []:
                     hinweis = f"{quelle}: {muster}"
                     if hinweis not in guardrail_hinweise:
                         guardrail_hinweise.append(hinweis)

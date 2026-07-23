@@ -538,4 +538,14 @@ if user_input:
 # "if user_input:"-Block würde deshalb immer den Stand VOR der gerade
 # beantworteten Frage zeigen (eine Interaktion Verzögerung) - siehe
 # Bug bei der ursprünglichen Platzierung vor den Beispielfrage-Chips.
-render_governance_panel()
+#
+# Defensiv gekapselt: das Governance-Panel ist reine Zusatz-Transparenz,
+# kein kritischer Pfad. Ein Fehler hier (z. B. eine unerwartete Objekt-
+# form im Session-State auf Streamlit Cloud) darf niemals die ganze App
+# mit einem Traceback abstürzen lassen - Details ins Log, unauffälliger
+# Hinweis ins UI, Chat bleibt bedienbar.
+try:
+    render_governance_panel()
+except Exception:
+    logger.exception("Governance-Panel konnte nicht gerendert werden")
+    st.caption("ℹ️ Governance-Panel momentan nicht verfügbar.")

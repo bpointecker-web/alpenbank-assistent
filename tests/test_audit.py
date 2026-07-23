@@ -362,3 +362,67 @@ class TestSessionZusammenfassung:
         ergebnis = audit.session_zusammenfassung(messages)
 
         assert ergebnis["quellen"] == []
+
+    def test_robustheit_traces_als_dicts_statt_namedtuples(self):
+        # Absicherung gegen die Streamlit-Cloud-Ursache (AttributeError im
+        # Governance-Panel): liegen Traces aus irgendeinem Grund als dicts
+        # statt agent.ToolCallTrace vor, muss die Auswertung trotzdem
+        # funktionieren statt abzustürzen.
+        messages = [
+            {
+                "role": "user",
+                "content": "Frage",
+            },
+            {
+                "role": "assistant",
+                "content": "Antwort",
+                "traces": [
+                    {
+                        "name": "dokumenten_suche",
+                        "ergebnis": {
+                            "details": [
+                                {
+                                    "quelle": "kundenkommunikation.txt",
+                                    "inhalt": "...",
+                                    "guardrail_hinweise": ["system:"],
+                                }
+                            ]
+                        },
+                    }
+                ],
+            },
+        ]
+
+        ergebnis = audit.session_zusammenfassung(messages)
+
+        assert ergebnis["anzahl_fragen"] == 1
+        assert ergebnis["quellen"] == ["kundenkommunikation.txt"]
+        assert len(ergebnis["guardrail_hinweise"]) == 1
+
+    def test_robustheit_nicht_dict_nachricht_wird_uebersprungen(self):
+        # Eine Nachricht, die kein dict ist (z. B. durch beschädigten
+        # Session-State), darf die Auswertung nicht crashen - der erste
+        # Zugriff war frueher msg.get(...) und wuerde bei einem String
+        # eine AttributeError werfen.
+        messages = [
+            "kaputte nachricht als string",
+            {"role": "user", "content": "echte Frage"},
+        ]
+
+        ergebnis = audit.session_zusammenfassung(messages)
+
+        assert ergebnis["anzahl_fragen"] == 1
+
+    def test_robustheit_trace_ohne_details_und_ergebnis(self):
+        # Trace ohne ergebnis / mit ergebnis=None darf nicht crashen.
+        messages = [
+            {
+                "role": "assistant",
+                "content": "Antwort",
+                "traces": [{"name": "dokumenten_suche", "ergebnis": None}],
+            }
+        ]
+
+        ergebnis = audit.session_zusammenfassung(messages)
+
+        assert ergebnis["quellen"] == []
