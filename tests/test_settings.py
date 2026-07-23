@@ -27,6 +27,7 @@ class TestLoadSettings:
             model="claude-sonnet-4-6",
             max_tokens=2048,
             max_iterations=5,
+            session_token_budget=50_000,
         )
 
     def test_normalfall_teil_override_laesst_rest_beim_default(self):
@@ -44,6 +45,7 @@ class TestLoadSettings:
             "ALPENBANK_MODEL": "claude-opus-4-8",
             "ALPENBANK_MAX_TOKENS": "2048",
             "ALPENBANK_MAX_ITERATIONS": "8",
+            "ALPENBANK_SESSION_TOKEN_BUDGET": "100000",
         }
 
         result = settings.load_settings(env)
@@ -55,6 +57,7 @@ class TestLoadSettings:
             model="claude-opus-4-8",
             max_tokens=2048,
             max_iterations=8,
+            session_token_budget=100_000,
         )
 
     def test_randfall_none_nutzt_echte_prozessumgebung(self, monkeypatch):
@@ -65,6 +68,7 @@ class TestLoadSettings:
             "ALPENBANK_MODEL",
             "ALPENBANK_MAX_TOKENS",
             "ALPENBANK_MAX_ITERATIONS",
+            "ALPENBANK_SESSION_TOKEN_BUDGET",
         ):
             monkeypatch.delenv(key, raising=False)
 

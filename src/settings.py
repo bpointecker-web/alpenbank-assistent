@@ -26,6 +26,7 @@ class Settings(NamedTuple):
     model: str
     max_tokens: int
     max_iterations: int
+    session_token_budget: int
 
 
 # Chunk-Größe seit Stage 2.2: 150 Wörter/30 Overlap statt vormals 500/50.
@@ -46,6 +47,12 @@ _DEFAULT_MODEL = "claude-sonnet-4-6"
 # vorzeitig ab (siehe scripts/demo_cache_erzeugen.py-Lauf nach 2.2).
 _DEFAULT_MAX_TOKENS = 2048
 _DEFAULT_MAX_ITERATIONS = 5
+# Session-Token-Budget (Stage 4.4): grobe Kostenbremse für den Live-Modus.
+# 50.000 Tokens erlauben bei typischem Verbrauch (~1.000-3.000 Tokens pro
+# Antwort, siehe data/demo_cache.json-Erzeugung) rund 15-30 Fragen pro
+# Session, bevor der Nutzer eine neue Session starten muss. Gilt nicht im
+# Demo-Modus (dort entsteht ohnehin kein Token-Verbrauch).
+_DEFAULT_SESSION_TOKEN_BUDGET = 50_000
 
 
 def _read_int(env: Mapping[str, str], key: str, default: int) -> int:
@@ -95,6 +102,9 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
     max_iterations = _read_int(
         env, "ALPENBANK_MAX_ITERATIONS", _DEFAULT_MAX_ITERATIONS
     )
+    session_token_budget = _read_int(
+        env, "ALPENBANK_SESSION_TOKEN_BUDGET", _DEFAULT_SESSION_TOKEN_BUDGET
+    )
 
     model = env.get("ALPENBANK_MODEL", _DEFAULT_MODEL)
     if not model.strip():
@@ -107,6 +117,7 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         model=model,
         max_tokens=max_tokens,
         max_iterations=max_iterations,
+        session_token_budget=session_token_budget,
     )
 
 

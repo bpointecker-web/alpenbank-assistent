@@ -43,7 +43,8 @@ import streamlit as st  # noqa: E402
 from anthropic import Anthropic  # noqa: E402
 from dotenv import load_dotenv  # noqa: E402
 
-from src import agent, audit, demo, rag, sql  # noqa: E402
+from src import agent, audit, demo, guardrails, rag, sql  # noqa: E402
+from src.settings import SETTINGS  # noqa: E402
 from src.logging_config import setup_logging  # noqa: E402
 
 # .env laden, bevor wir auf Umgebungsvariablen zugreifen.
@@ -246,6 +247,13 @@ else:
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
+# Kumulierter Token-Verbrauch der Session (Stage 4.4 – Budget-Bremse).
+# Bleibt im Demo-Modus bei 0, weil dort nie ein echter API-Call
+# stattfindet (agent.AgentAntwort.input_tokens/output_tokens sind dann
+# per Default 0).
+if "session_tokens_gesamt" not in st.session_state:
+    st.session_state.session_tokens_gesamt = 0
+
 
 def history_for_agent(messages: list[dict]) -> list[dict]:
     """Filtert die UI-Historie auf das, was Claude sehen soll.
@@ -386,6 +394,29 @@ if chip_frage and not user_input:
     user_input = chip_frage
 
 if user_input:
+    # Guardrails (Stage 4.4) gelten nur im Live-Modus: Input-Sanitisierung
+    # und Budget-Bremse schützen vor unnötigem/exzessivem API-Verbrauch –
+    # im Demo-Modus entsteht ohnehin keiner. Bewusst VOR dem Anhängen an
+    # die Historie geprüft, damit eine abgelehnte Eingabe nicht als
+    # regulärer Chat-Turn erscheint.
+    if not DEMO_MODE:
+        try:
+            guardrails.pruefe_nutzereingabe(user_input)
+        except guardrails.EingabeAbgelehnt as exc:
+            st.error(str(exc))
+            st.stop()
+
+        if guardrails.budget_ueberschritten(
+            st.session_state.session_tokens_gesamt, SETTINGS.session_token_budget
+        ):
+            budget_de = f"{SETTINGS.session_token_budget:,}".replace(",", ".")
+            st.error(
+                f"Das Token-Budget dieser Session ({budget_de} Tokens) "
+                "ist ausgeschöpft. Bitte starte eine neue Session "
+                "(Seite neu laden)."
+            )
+            st.stop()
+
     user_msg = {"role": "user", "content": user_input}
     st.session_state.messages.append(user_msg)
     render_message(user_msg)
@@ -427,12 +458,15 @@ if user_input:
             )
             st.stop()
 
-    # Audit-Log nur im Live-Modus: eine Demo-Modus-Antwort ist keine
-    # echte Interaktion mit dem System (kein API-Call, kein echter
-    # Tool-Zugriff) und hat im Audit-Trail nichts verloren.
+    # Audit-Log und Budget-Zähler nur im Live-Modus: eine Demo-Modus-
+    # Antwort ist keine echte Interaktion mit dem System (kein API-Call,
+    # kein echter Tool-Zugriff) und hat im Audit-Trail nichts verloren.
     if not DEMO_MODE:
         audit.log_audit_eintrag(
             audit.baue_audit_eintrag(user_input, antwort, agent.MODEL)
+        )
+        st.session_state.session_tokens_gesamt += (
+            antwort.input_tokens + antwort.output_tokens
         )
 
     assistant_msg = {
