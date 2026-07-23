@@ -84,24 +84,59 @@ st.markdown(
         margin-bottom: 1.25rem;
     }
     .alpenbank-header h1 {
-        margin: 0;
+        margin: 0 0 0.75rem 0;
         font-size: 1.9rem;
         color: #f5f1e6;
     }
-    .alpenbank-header p {
-        margin: 0.35rem 0 0 0;
+    .alpenbank-header p, .alpenbank-header li {
         color: #cfd9e0;
         font-size: 0.95rem;
+        line-height: 1.5;
+    }
+    .alpenbank-header strong {
+        color: #f5f1e6;
+    }
+    .alpenbank-header a {
+        color: #e8c65a;
+        font-weight: 600;
+    }
+    .alpenbank-header ul {
+        margin: 0.5rem 0;
+        padding-left: 1.25rem;
     }
     </style>
     <div class="alpenbank-header">
-        <h1>🏔️ Alpenbank-Assistent</h1>
-        <p>KI-Assistent für interne Richtlinien &amp; Controlling-Daten
-        &ndash; Agent mit Tool Use</p>
+        <h1>🏔️ ALPENBANK KI-ASSISTENT (RAG)</h1>
+        <p>Ein Sprachmodell (LLM), das ausschließlich auf den internen Daten der (frei erfundenen) Alpenbank AG arbeitet: ihren Richtlinien-Dokumenten und ihrer Controlling-Datenbank (relationale Datenbank).</p>
+        <p>Statt allgemeines Wissen aus dem Internet wiederzugeben, beantwortet es Fragen belegbar aus dem eigenen Datenbestand der Bank – die Daten verlassen das Haus nicht. Genau das macht diese Technik für regulierte Branchen einsetzbar.</p>
+        <p>Zwei Arten von Fragen – der Assistent erkennt selbst, welche gemeint ist, und wählt das passende Werkzeug:</p>
+        <ul>
+            <li><strong>Richtlinien</strong> (Text-Dokumente): <em>„Welche Hotelkategorie darf ich auf Dienstreisen buchen?“</em></li>
+            <li><strong>Kennzahlen</strong> (Controlling-Datenbank): <em>„Wie hoch waren die Erträge 2024?“</em></li>
+        </ul>
+        <p>Beides lässt sich auch kombinieren. Bei jeder Antwort legt er offen, welche Quelle er benutzt hat – nachvollziehbar statt „vertrau mir“.</p>
+        <p>Einen Chatbot baut man schnell. Die eigentliche Arbeit steckt darin, ihn so abzusichern, dass eine regulierte Bank ihn tatsächlich einsetzen darf. Genau diese Schicht zeigt die Demo:</p>
+        <ul>
+            <li><strong>Nachvollziehbarkeit</strong> – jede Antwort ist auf ihre Quelle zurückführbar, jede Anfrage wird protokolliert (Audit-Trail nach EU-AI-Act-Logik). Sichtbar unten im Governance-Panel.</li>
+            <li><strong>Manipulationsschutz</strong> – ein präpariertes Dokument, das dem Assistenten heimlich neue Anweisungen unterjubeln will, wird erkannt und neutralisiert. Live ausprobierbar mit dem Chip <em>„Welche Regeln gelten für die Kundenkommunikation?“</em>.</li>
+            <li><strong>Datenschutz</strong> – personenbezogene Daten (E-Mail, IBAN, Telefonnummer) werden automatisch aus dem Protokoll entfernt.</li>
+        </ul>
     </div>
     """,
     unsafe_allow_html=True,
 )
+
+# Architektur-Diagramm direkt in der App (statt Link nach außen): der
+# Besucher bleibt im Showroom. Die SVG liegt versioniert unter docs/ und
+# wird beim Aufruf gelesen (App läuft aus dem Projekt-Root, analog zu den
+# data/-Pfaden). Fehlt die Datei, wird der Abschnitt einfach weggelassen –
+# ein fehlendes Diagramm darf die App nicht blockieren.
+ARCHITEKTUR_DIAGRAMM_PATH = Path("docs/diagramme/architektur_high_level.svg")
+if ARCHITEKTUR_DIAGRAMM_PATH.exists():
+    with st.expander("📐 Systemarchitektur ansehen"):
+        st.image(str(ARCHITEKTUR_DIAGRAMM_PATH), use_container_width=True)
+
+st.divider()
 
 if DEMO_MODE:
     st.caption("Demo-Modus – kostenlos, ohne Live-API")
