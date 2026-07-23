@@ -15,7 +15,8 @@ Voraussetzungen (Live-Modus):
 
 Demo-Modus (ALPENBANK_DEMO_MODE=1, siehe src/demo.py):
     data/demo_cache.json (erzeugt durch scripts/demo_cache_erzeugen.py)
-    Kein API-Key nötig – nur die zehn Demo-Fragen werden beantwortet.
+    Kein API-Key nötig – nur die Demo-Fragen (siehe demo.DEMO_FRAGEN)
+    werden beantwortet.
 
 Start im Projekt-Root:
     streamlit run src/app.py
@@ -104,7 +105,7 @@ st.markdown(
 if DEMO_MODE:
     st.caption("Demo-Modus – kostenlos, ohne Live-API")
     st.info(
-        "**Demo-Modus:** Diese Instanz beantwortet nur die zehn "
+        "**Demo-Modus:** Diese Instanz beantwortet nur die "
         "Beispielfragen unten mit vorab aufgezeichneten, echten "
         "Claude-Antworten – kein API-Key, keine laufenden Kosten. "
         "Für eigene Fragen: Projekt lokal mit eigenem "
@@ -314,6 +315,16 @@ def _render_dokumenten_suche_details(treffer: list) -> None:
             f"(Rerank-Score {eintrag['rerank_score']:.4f}, "
             f"Hybrid-Fusion-Score {eintrag['fusion_score']:.4f})"
         )
+        # Stage 4.3: Prompt-Injection-Heuristik. Der Schutz selbst
+        # (XML-Escaping) greift immer; diese Warnung macht einen
+        # erkannten Versuch zusätzlich direkt im Trace sichtbar, nicht
+        # erst im Governance-Panel.
+        guardrail_hinweise = eintrag.get("guardrail_hinweise")
+        if guardrail_hinweise:
+            st.warning(
+                "⚠️ Verdächtiges Muster in diesem Chunk erkannt "
+                f"(Prompt-Injection-Heuristik): {', '.join(guardrail_hinweise)}"
+            )
         auszug = eintrag["inhalt"][:300]
         if len(eintrag["inhalt"]) > 300:
             auszug += " …"
@@ -346,8 +357,9 @@ def render_message(msg: dict) -> None:
             )
 
 
-# Beispielfrage-Chips: alle zehn Demo-Fragen aus KONZEPT.md als klickbare
-# Buttons, zweispaltig. Ein Klick setzt "chip_frage" in den Session-State;
+# Beispielfrage-Chips: alle Demo-Fragen (zehn aus KONZEPT.md plus der
+# Prompt-Injection-Sicherheitsfall, Stage 4.3) als klickbare Buttons,
+# zweispaltig. Ein Klick setzt "chip_frage" in den Session-State;
 # Streamlit rendert dabei automatisch neu, der eigentliche Verlauf unten
 # behandelt Chip-Klick und Freitext-Eingabe danach einheitlich.
 st.markdown("**Beispielfragen zum Ausprobieren:**")

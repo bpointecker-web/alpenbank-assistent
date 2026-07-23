@@ -74,11 +74,15 @@ Demo-Fragen (Auswahl, vollständig in `KONZEPT.md`):
 - *„Welche Hotelkategorie darf ich bei Dienstreisen buchen?"* → RAG
 - *„Warum ist der Aufwand von Kostenstelle 4711 gestiegen?"* → SQL und RAG kombiniert
 - *„Lösch alle Buchungen!"* → wird abgelehnt
+- *„Welche Regeln gelten für die Kundenkommunikation?"* → RAG mit eingebettetem
+  Prompt-Injection-Versuch im Quelldokument, sichtbar neutralisiert (siehe
+  Abschnitt "Sicherheit & Compliance")
 
 ## Demo-Modus (kostenlos, ohne API-Key)
 
 Für eine öffentlich verlinkbare Demo (z. B. im Showroom) gibt es einen
-Modus, der die zehn Demo-Fragen aus vorab aufgezeichneten, echten
+Modus, der die elf Demo-Fragen (zehn aus `KONZEPT.md` plus der
+Prompt-Injection-Sicherheitsfall) aus vorab aufgezeichneten, echten
 Claude-Antworten beantwortet – ohne API-Key auf dem Server und ohne
 laufende Kosten pro Besucher:
 
@@ -91,7 +95,7 @@ set ALPENBANK_DEMO_MODE=1
 streamlit run src/app.py
 ```
 
-Freitext-Fragen außerhalb der zehn Beispielfragen bekommen im Demo-Modus
+Freitext-Fragen außerhalb der Beispielfragen bekommen im Demo-Modus
 einen erklärenden Hinweis statt einer Antwort. Details siehe `src/demo.py`.
 
 ## Retrieval-Evaluation
@@ -112,6 +116,26 @@ Ergebnis (Stand nach Stage 2): **[docs/eval_report.md](docs/eval_report.md)**
 Hybrid-Search + Reranking auf diesem kleinen, thematisch klar getrennten
 6-Dokumente-Corpus (noch) kaum sichtbar wird, obwohl er in der Literatur
 gut belegt ist (siehe Report für Details).
+
+## Sicherheit & Compliance
+
+Banken-Differenzierer statt generischer RAG-Demo – orientiert an den
+EU-AI-Act-Anforderungen für Hochrisiko-KI im Finanzsektor
+(Traceability, Nachvollziehbarkeit, Schutz vor Manipulation):
+
+- **Audit-Log** (`src/audit.py`): jede Live-Anfrage wird strukturiert
+  protokolliert (Zeitstempel, Frage, genutzte Tools/Quellen/SQL,
+  Modell, Token-Verbrauch) – append-only JSONL unter
+  `data/audit_log.jsonl`. Demo-Modus-Antworten werden bewusst nicht
+  geloggt (keine echte API-Interaktion).
+- **Prompt-Injection-Schutz** (`src/rag.py`): Chunk-Inhalte werden vor
+  dem Einbetten in den Prompt XML-escaped (verhindert Manipulation der
+  Prompt-Struktur), zusätzlich erkennt eine Heuristik verdächtige
+  Muster und macht sie im Tool-Trace sichtbar. Beweis im Live-System:
+  `data/dokumente/kundenkommunikation.txt` enthält einen eingebetteten
+  Angriffsversuch – die Demo-Frage *„Welche Regeln gelten für die
+  Kundenkommunikation?"* zeigt live, dass er neutralisiert und markiert
+  wird, statt heimlich zu wirken.
 
 ## Tests ausführen
 

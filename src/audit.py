@@ -32,9 +32,11 @@ DEFAULT_AUDIT_LOG_PATH = Path("data/audit_log.jsonl")
 class AuditEintrag(NamedTuple):
     """Ein protokollierter Interaktions-Eintrag.
 
-    ``guardrail_hinweise`` wird seit Stage 4.3 vom
-    Prompt-Injection-Heuristik befüllt (siehe ``rag.py``); bis dahin
-    immer leer.
+    ``guardrail_hinweise`` wird von der Prompt-Injection-Heuristik
+    befüllt (``rag.erkenne_injektionsversuch``, in
+    ``agent._execute_dokumenten_suche`` an die Treffer angehängt) –
+    leer, solange kein verdächtiges Muster in einem verwendeten Chunk
+    gefunden wurde.
     """
 
     zeitstempel: str
@@ -62,6 +64,7 @@ def baue_audit_eintrag(frage: str, antwort: Any, modell: str) -> AuditEintrag:
     tool_aufrufe: list[dict[str, Any]] = []
     quellen: list[str] = []
     sql_statements: list[str] = []
+    guardrail_hinweise: list[str] = []
 
     for trace in antwort.traces:
         tool_aufrufe.append({"name": trace.name, "is_error": trace.ergebnis.is_error})
@@ -71,6 +74,10 @@ def baue_audit_eintrag(frage: str, antwort: Any, modell: str) -> AuditEintrag:
                 quelle = eintrag.get("quelle")
                 if quelle and quelle not in quellen:
                     quellen.append(quelle)
+                for muster in eintrag.get("guardrail_hinweise", []):
+                    hinweis = f"{quelle}: verdächtiges Muster erkannt ({muster!r})"
+                    if hinweis not in guardrail_hinweise:
+                        guardrail_hinweise.append(hinweis)
 
         if trace.name == "datenbank_abfrage":
             details = trace.ergebnis.details or {}
@@ -88,7 +95,7 @@ def baue_audit_eintrag(frage: str, antwort: Any, modell: str) -> AuditEintrag:
         iterations_used=antwort.iterations_used,
         input_tokens=antwort.input_tokens,
         output_tokens=antwort.output_tokens,
-        guardrail_hinweise=[],
+        guardrail_hinweise=guardrail_hinweise,
     )
 
 

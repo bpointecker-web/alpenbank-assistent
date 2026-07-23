@@ -111,6 +111,43 @@ class TestBaueAuditEintrag:
 
         assert eintrag.quellen == []
 
+    def test_normalfall_sammelt_guardrail_hinweise(self):
+        # Spiegelt agent._execute_dokumenten_suche: Treffer, denen die
+        # Injection-Heuristik ein "guardrail_hinweise"-Feld angehängt
+        # hat, muessen im Audit-Eintrag landen.
+        traces = [
+            _trace(
+                "dokumenten_suche",
+                False,
+                [
+                    {
+                        "quelle": "kundenkommunikation.txt",
+                        "inhalt": "...",
+                        "guardrail_hinweise": ["system:"],
+                    }
+                ],
+            )
+        ]
+
+        eintrag = audit.baue_audit_eintrag("Frage?", _antwort(traces), "modell")
+
+        assert len(eintrag.guardrail_hinweise) == 1
+        assert "kundenkommunikation.txt" in eintrag.guardrail_hinweise[0]
+        assert "system:" in eintrag.guardrail_hinweise[0]
+
+    def test_randfall_keine_guardrail_hinweise_gibt_leere_liste(self):
+        traces = [
+            _trace(
+                "dokumenten_suche",
+                False,
+                [{"quelle": "a.txt", "inhalt": "unauffällig"}],
+            )
+        ]
+
+        eintrag = audit.baue_audit_eintrag("Frage?", _antwort(traces), "modell")
+
+        assert eintrag.guardrail_hinweise == []
+
 
 # ---------------------------------------------------------------------------
 # log_audit_eintrag

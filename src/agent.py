@@ -282,6 +282,17 @@ def _execute_dokumenten_suche(
     )
     treffer = rag.rerank(frage, kandidaten, rag_index.reranker)
 
+    # Transparenz-Layer (Stage 4.3): markiert Chunks mit erkannten
+    # Injection-Mustern, BEVOR sie in den Prompt eingebettet werden. Der
+    # eigentliche Schutz ist das XML-Escaping in rag.format_context() –
+    # diese Markierung macht einen erkannten Versuch zusätzlich im
+    # Tool-Trace und im Audit-Log sichtbar, statt ihn nur stillschweigend
+    # zu neutralisieren.
+    for eintrag in treffer:
+        muster = rag.erkenne_injektionsversuch(eintrag["inhalt"])
+        if muster:
+            eintrag["guardrail_hinweise"] = muster
+
     # Leere Trefferliste ist eine valide Information für Claude – kein
     # Fehler. Claude entscheidet selbst, ob er die Frage anders
     # umformuliert oder dem Nutzer erklärt, dass die Dokumente nichts
