@@ -238,3 +238,127 @@ class TestLiesAuditLog:
         pfad.write_text("", encoding="utf-8")
 
         assert audit.lies_audit_log(pfad) == []
+
+
+# ---------------------------------------------------------------------------
+# session_zusammenfassung
+# ---------------------------------------------------------------------------
+
+
+class TestSessionZusammenfassung:
+    def test_normalfall_zaehlt_fragen_und_sammelt_quellen(self):
+        messages = [
+            {"role": "user", "content": "Frage 1"},
+            {
+                "role": "assistant",
+                "content": "Antwort 1",
+                "traces": [
+                    _trace(
+                        "dokumenten_suche",
+                        False,
+                        [{"quelle": "a.txt", "inhalt": "..."}],
+                    )
+                ],
+            },
+            {"role": "user", "content": "Frage 2"},
+            {
+                "role": "assistant",
+                "content": "Antwort 2",
+                "traces": [
+                    _trace(
+                        "dokumenten_suche",
+                        False,
+                        [{"quelle": "b.txt", "inhalt": "..."}],
+                    )
+                ],
+            },
+        ]
+
+        ergebnis = audit.session_zusammenfassung(messages)
+
+        assert ergebnis["anzahl_fragen"] == 2
+        assert ergebnis["quellen"] == ["a.txt", "b.txt"]
+        assert ergebnis["guardrail_hinweise"] == []
+
+    def test_normalfall_sammelt_guardrail_hinweise(self):
+        messages = [
+            {"role": "user", "content": "Frage"},
+            {
+                "role": "assistant",
+                "content": "Antwort",
+                "traces": [
+                    _trace(
+                        "dokumenten_suche",
+                        False,
+                        [
+                            {
+                                "quelle": "kundenkommunikation.txt",
+                                "inhalt": "...",
+                                "guardrail_hinweise": ["system:"],
+                            }
+                        ],
+                    )
+                ],
+            },
+        ]
+
+        ergebnis = audit.session_zusammenfassung(messages)
+
+        assert len(ergebnis["guardrail_hinweise"]) == 1
+        assert "kundenkommunikation.txt" in ergebnis["guardrail_hinweise"][0]
+
+    def test_normalfall_dedupliziert_quellen_ueber_mehrere_nachrichten(self):
+        messages = [
+            {
+                "role": "assistant",
+                "content": "A",
+                "traces": [
+                    _trace("dokumenten_suche", False, [{"quelle": "a.txt", "inhalt": "x"}])
+                ],
+            },
+            {
+                "role": "assistant",
+                "content": "B",
+                "traces": [
+                    _trace("dokumenten_suche", False, [{"quelle": "a.txt", "inhalt": "y"}])
+                ],
+            },
+        ]
+
+        ergebnis = audit.session_zusammenfassung(messages)
+
+        assert ergebnis["quellen"] == ["a.txt"]
+
+    def test_randfall_leere_historie(self):
+        ergebnis = audit.session_zusammenfassung([])
+
+        assert ergebnis == {
+            "anzahl_fragen": 0,
+            "quellen": [],
+            "guardrail_hinweise": [],
+        }
+
+    def test_randfall_nachrichten_ohne_traces_schluessel(self):
+        # User-Nachrichten haben keinen "traces"-Schlüssel - darf nicht
+        # zum Absturz führen.
+        messages = [{"role": "user", "content": "Frage ohne Antwort noch"}]
+
+        ergebnis = audit.session_zusammenfassung(messages)
+
+        assert ergebnis["anzahl_fragen"] == 1
+        assert ergebnis["quellen"] == []
+
+    def test_randfall_datenbank_abfrage_traces_werden_ignoriert(self):
+        messages = [
+            {
+                "role": "assistant",
+                "content": "Antwort",
+                "traces": [
+                    _trace("datenbank_abfrage", False, {"sql": "SELECT 1", "tabelle": "..."})
+                ],
+            }
+        ]
+
+        ergebnis = audit.session_zusammenfassung(messages)
+
+        assert ergebnis["quellen"] == []

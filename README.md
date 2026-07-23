@@ -136,6 +136,19 @@ EU-AI-Act-Anforderungen für Hochrisiko-KI im Finanzsektor
   Angriffsversuch – die Demo-Frage *„Welche Regeln gelten für die
   Kundenkommunikation?"* zeigt live, dass er neutralisiert und markiert
   wird, statt heimlich zu wirken.
+- **Token-/Cost-Budget + Input-Sanitisierung** (`src/guardrails.py`):
+  Nutzerfragen werden vor der Verarbeitung auf Länge und Steuerzeichen
+  geprüft; ein konfigurierbares Session-Token-Budget
+  (`ALPENBANK_SESSION_TOKEN_BUDGET`, Default 50.000) bremst eine
+  einzelne ausufernde Session.
+- **PII-Redaction** (`src/pii.py`): E-Mail, IBAN und Telefonnummern
+  werden aus der im Audit-Log persistierten Frage automatisch entfernt
+  – regex-basiert, keine neue Abhängigkeit (bewusst kein Presidio, das
+  spaCy + ein Sprachmodell mitziehen würde).
+- **Governance-Panel** im UI: zeigt live Fragen, genutzte Quellen und
+  erkannte Guardrail-Hinweise der aktuellen Session – funktioniert
+  identisch im Demo- und Live-Modus, macht Compliance sichtbar statt
+  nur zu behaupten.
 
 ## Tests ausführen
 

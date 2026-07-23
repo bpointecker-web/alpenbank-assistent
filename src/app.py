@@ -365,6 +365,58 @@ def render_message(msg: dict) -> None:
             )
 
 
+def render_governance_panel() -> None:
+    """Governance-Panel (Stage 4.6): macht Compliance sichtbar statt nur behauptet.
+
+    Nutzt ``audit.session_zusammenfassung`` auf der aktuellen
+    Chat-Historie – funktioniert dadurch identisch im Demo- und im
+    Live-Modus, ohne dass im Demo-Modus ein echtes Audit-Log nötig
+    wäre (dort entsteht ohnehin keine echte Interaktion).
+    """
+    zusammenfassung = audit.session_zusammenfassung(st.session_state.messages)
+
+    with st.expander("🛡️ Governance & Transparenz dieser Session"):
+        spalten = st.columns(3 if DEMO_MODE else 4)
+        spalten[0].metric("Fragen gestellt", zusammenfassung["anzahl_fragen"])
+        spalten[1].metric("Genutzte Quellen", len(zusammenfassung["quellen"]))
+        spalten[2].metric(
+            "Guardrail-Hinweise", len(zusammenfassung["guardrail_hinweise"])
+        )
+        if not DEMO_MODE:
+            verbrauch_de = f"{st.session_state.session_tokens_gesamt:,}".replace(
+                ",", "."
+            )
+            budget_de = f"{SETTINGS.session_token_budget:,}".replace(",", ".")
+            spalten[3].metric("Token-Budget", f"{verbrauch_de} / {budget_de}")
+
+        if zusammenfassung["guardrail_hinweise"]:
+            st.warning(
+                "⚠️ In dieser Session erkannte Guardrail-Hinweise "
+                "(Prompt-Injection-Heuristik):\n\n"
+                + "\n".join(f"- {h}" for h in zusammenfassung["guardrail_hinweise"])
+            )
+
+        if zusammenfassung["quellen"]:
+            st.markdown(
+                "**Verwendete Quellen:** " + ", ".join(zusammenfassung["quellen"])
+            )
+
+        if DEMO_MODE:
+            st.caption(
+                "Im Demo-Modus wird nichts persistiert (keine echten "
+                "API-Aufrufe) – diese Kennzahlen spiegeln nur die aktuell "
+                "sichtbare Chat-Historie. Im Live-Modus protokolliert das "
+                "Audit-Log (`data/audit_log.jsonl`) jede Interaktion "
+                "dauerhaft, siehe `src/audit.py`."
+            )
+        else:
+            anzahl_geloggt = len(audit.lies_audit_log())
+            st.caption(
+                f"Persistiertes Audit-Log: {anzahl_geloggt} Einträge in "
+                f"`{audit.DEFAULT_AUDIT_LOG_PATH}`."
+            )
+
+
 # Beispielfrage-Chips: alle Demo-Fragen (zehn aus KONZEPT.md plus der
 # Prompt-Injection-Sicherheitsfall, Stage 4.3) als klickbare Buttons,
 # zweispaltig. Ein Klick setzt "chip_frage" in den Session-State;
@@ -477,3 +529,13 @@ if user_input:
     }
     st.session_state.messages.append(assistant_msg)
     render_message(assistant_msg)
+
+
+# Erst HIER (nach dem gesamten Frage-Antwort-Zyklus) aufrufen, nicht
+# weiter oben im Skript: Streamlit führt das komplette Skript pro
+# Interaktion einmal linear von oben nach unten aus, ohne reaktives
+# Nach-Rendern bereits ausgegebener Widgets. Ein Aufruf vor dem
+# "if user_input:"-Block würde deshalb immer den Stand VOR der gerade
+# beantworteten Frage zeigen (eine Interaktion Verzögerung) - siehe
+# Bug bei der ursprünglichen Platzierung vor den Beispielfrage-Chips.
+render_governance_panel()

@@ -144,3 +144,44 @@ def lies_audit_log(
         eintraege = eintraege[-limit:]
 
     return eintraege
+
+
+def session_zusammenfassung(messages: list[dict[str, Any]]) -> dict[str, Any]:
+    """Fasst Governance-relevante Kennzahlen der aktuellen UI-Session zusammen.
+
+    Arbeitet direkt auf der Chat-Historie (``st.session_state.messages``),
+    nicht auf dem persistierten Audit-Log – funktioniert dadurch identisch
+    im Demo- und im Live-Modus, weil Demo-Antworten dieselbe
+    Trace-Struktur tragen wie Live-Antworten (siehe
+    ``demo.deserialize_antwort``). Das Governance-Panel (``app.py``) kann
+    so auch im Demo-Modus zeigen, was in der aktuellen Sitzung passiert
+    ist, ohne dass dafür ein echtes Audit-Log nötig wäre.
+
+    Erwartet Assistant-Nachrichten mit einem ``"traces"``-Schlüssel
+    (Liste von ``agent.ToolCallTrace``), wie ``app.py`` sie in
+    ``st.session_state.messages`` ablegt. Fehlt der Schlüssel (z. B. bei
+    User-Nachrichten), wird die Nachricht übersprungen statt einen
+    Fehler zu werfen.
+    """
+    anzahl_fragen = sum(1 for msg in messages if msg.get("role") == "user")
+    quellen: list[str] = []
+    guardrail_hinweise: list[str] = []
+
+    for msg in messages:
+        for trace in msg.get("traces", []):
+            if trace.name != "dokumenten_suche":
+                continue
+            for eintrag in trace.ergebnis.details or []:
+                quelle = eintrag.get("quelle")
+                if quelle and quelle not in quellen:
+                    quellen.append(quelle)
+                for muster in eintrag.get("guardrail_hinweise", []):
+                    hinweis = f"{quelle}: {muster}"
+                    if hinweis not in guardrail_hinweise:
+                        guardrail_hinweise.append(hinweis)
+
+    return {
+        "anzahl_fragen": anzahl_fragen,
+        "quellen": quellen,
+        "guardrail_hinweise": guardrail_hinweise,
+    }
