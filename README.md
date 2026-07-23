@@ -54,7 +54,10 @@ nacheinander. Pro Antwort werden die Tool-Aufrufe als ausklappbare
 Trace-Blöcke im UI angezeigt.
 
 Für den Showroom ergänzt: kostenloser Demo-Modus, Beispielfrage-Chips,
-Branding sowie strukturiertes Logging und gepinnte Dependencies.
+Branding, strukturiertes Logging und gepinnte Dependencies sowie
+RAG-Tiefe nach 2026er-Standard – konfigurierbares Chunking, PDF-Ingestion,
+Hybrid-Search (Dense + BM25 via Reciprocal Rank Fusion) und
+Cross-Encoder-Reranking (siehe Abschnitt "Retrieval-Evaluation").
 
 ```bash
 # Vorab einmalig: Daten erzeugen und RAG-Index aufbauen
@@ -90,6 +93,25 @@ streamlit run src/app.py
 
 Freitext-Fragen außerhalb der zehn Beispielfragen bekommen im Demo-Modus
 einen erklärenden Hinweis statt einer Antwort. Details siehe `src/demo.py`.
+
+## Retrieval-Evaluation
+
+Statt einer LLM-as-Judge-Bibliothek (RAGAS o. ä. – zieht historisch
+LangChain mit, braucht API-Calls pro Auswertung) misst ein schlankes,
+selbstgebautes Golden-Set (`eval/golden_set.py`) Hit-Rate@5 und MRR
+(Mean Reciprocal Rank) rein mechanisch – kostenlos, deterministisch,
+ohne neue Abhängigkeit. Vergleicht naives Dense-only-Retrieval gegen die
+aktuelle Hybrid+Reranking-Pipeline auf demselben Index:
+
+```bash
+python eval/run_eval.py
+```
+
+Ergebnis (Stand nach Stage 2): **[docs/eval_report.md](docs/eval_report.md)**
+– inklusive eines ehrlichen Hinweises, warum der Vorteil von
+Hybrid-Search + Reranking auf diesem kleinen, thematisch klar getrennten
+6-Dokumente-Corpus (noch) kaum sichtbar wird, obwohl er in der Literatur
+gut belegt ist (siehe Report für Details).
 
 ## Tests ausführen
 
