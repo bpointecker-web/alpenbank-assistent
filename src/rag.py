@@ -425,17 +425,19 @@ class Bm25Index(NamedTuple):
 
 
 class RagIndex(NamedTuple):
-    """Bündelt beide Retrieval-Indizes für den Tool-Use-Agenten.
+    """Bündelt alle Retrieval-Komponenten für den Tool-Use-Agenten.
 
     Ersetzt seit Stage 2.4 die einzelne ``collection`` als Parameter in
     ``agent.execute_tool``/``agent.answer_question`` – Hybrid-Search
     braucht sowohl die ChromaDB-Collection (dense) als auch den
-    BM25-Index (Keyword), ein weiterer Einzelparameter wäre unübersichtlich
-    geworden.
+    BM25-Index (Keyword); seit Stage 2.5 zusätzlich den Cross-Encoder
+    fürs Reranking. Ein weiterer Einzelparameter pro Komponente wäre
+    unübersichtlich geworden.
     """
 
     collection: Any
     bm25_index: Bm25Index
+    reranker: Any
 
 
 _TOKEN_PATTERN = re.compile(r"[a-zäöüß0-9]+")
@@ -633,3 +635,84 @@ def hybrid_search(
         }
         for chunk_id, score in fusioniert[:n_results]
     ]
+
+
+# ---------------------------------------------------------------------------
+# Cross-Encoder-Reranking. Ein Cross-Encoder liest Frage und Chunk
+# GEMEINSAM (statt wie Embeddings getrennt in Vektoren zu kodieren und
+# per Cosine-Similarity zu vergleichen) und bewertet die Relevanz direkt –
+# präziser, aber pro Kandidat teurer. Deshalb erst NACH der günstigeren
+# Hybrid-Vorauswahl (RERANK_CANDIDATE_POOL Kandidaten) einsetzen, nicht auf
+# dem gesamten Corpus.
+# ---------------------------------------------------------------------------
+
+# Mehrsprachiges Cross-Encoder-Modell (gleiche MiniLM-Modellfamilie wie
+# EMBEDDING_MODELL, konsistente Tooling-Geschichte). Bewusst das kleine
+# Modell (~200 MB) statt eines State-of-the-Art-Modells wie
+# BAAI/bge-reranker-v2-m3 (~2 GB): bei nur RERANK_CANDIDATE_POOL
+# Kandidaten aus einem kleinen Corpus ist der Qualitätsgewinn des
+# größeren Modells kaum spürbar, das Downloadrisiko auf Windows
+# (sentence-transformers-Kette, siehe pyarrow-Stolperstein oben) aber
+# deutlich höher.
+RERANKER_MODELL = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
+
+# Wie viele Kandidaten hybrid_search() liefern soll, bevor rerank() sie
+# auf DEFAULT_N_RESULTS filtert. Größer als der finale n_results, damit
+# der Cross-Encoder aus einer breiteren Vorauswahl schöpfen kann.
+RERANK_CANDIDATE_POOL = 20
+
+
+def get_default_reranker() -> Any:
+    """Liefert den Standard-Cross-Encoder für Reranking.
+
+    Lazy importiert, analog zu ``get_default_embedding_function()`` – der
+    Import von ``rag.py`` soll nicht zwangsweise ``sentence-transformers``
+    samt Cross-Encoder-Modell ins RAM ziehen.
+    """
+    from sentence_transformers import CrossEncoder
+
+    return CrossEncoder(RERANKER_MODELL)
+
+
+def rerank(
+    frage: str,
+    kandidaten: list[dict[str, Any]],
+    reranker: Any | None = None,
+    top_n: int = DEFAULT_N_RESULTS,
+) -> list[dict[str, Any]]:
+    """Reranked Hybrid-Search-Kandidaten mit einem Cross-Encoder auf ``top_n``.
+
+    Ergänzt die Treffer-Dicts additiv um ``rerank_score`` (höher =
+    relevanter), ersetzt bestehende Schlüssel (u. a. ``fusion_score``)
+    nicht – geringeres Risiko für Aufrufer, die noch auf die alten Felder
+    zugreifen.
+
+    Bei leeren Kandidaten wird der Reranker gar nicht erst aufgerufen –
+    unnötige Modell-Inferenz sparen. ``reranker`` ist optional (Default:
+    ``get_default_reranker()``), analog zum ``embedding_function``-Muster
+    bei ``create_collection`` – Tests können hier einen Mock einsetzen, um
+    den Modell-Download zu sparen.
+
+    Wirft ``ValueError`` bei leerer Frage oder nicht-positivem ``top_n``.
+    """
+    if not frage or not frage.strip():
+        raise ValueError("Frage darf nicht leer sein.")
+    if top_n <= 0:
+        raise ValueError(f"top_n muss positiv sein, war {top_n}.")
+
+    if not kandidaten:
+        return []
+
+    if reranker is None:
+        reranker = get_default_reranker()
+
+    paare = [(frage, kandidat["inhalt"]) for kandidat in kandidaten]
+    scores = reranker.predict(paare)
+
+    bewertet = [
+        {**kandidat, "rerank_score": float(score)}
+        for kandidat, score in zip(kandidaten, scores, strict=True)
+    ]
+    bewertet.sort(key=lambda k: k["rerank_score"], reverse=True)
+
+    return bewertet[:top_n]

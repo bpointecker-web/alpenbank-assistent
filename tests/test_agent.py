@@ -54,17 +54,39 @@ class FakeCollection:
         }
 
 
+class StablePassthroughReranker:
+    """Cross-Encoder-Stub, der die Eingabereihenfolge unverändert lässt.
+
+    ``predict()`` vergibt absteigende Fake-Scores exakt in
+    Eingabereihenfolge, damit ``rerank()``s Sortierung (absteigend nach
+    Score) die ursprüngliche Hybrid-Reihenfolge der Test-Fixtures nicht
+    durcheinanderwirft. Echte Relevanzbewertung ist nicht Gegenstand
+    dieser Tests – dafür gibt es ``TestRerank`` in ``test_rag.py``. Lädt
+    kein echtes Modell, also kein Download/Laufzeitkosten in Unit-Tests.
+    """
+
+    def predict(self, paare):
+        anzahl = len(paare)
+        return [float(anzahl - i) for i in range(anzahl)]
+
+
 def make_rag_index(treffer: list[dict]) -> rag.RagIndex:
     """Baut ein ``RagIndex``-Bündel: ``FakeCollection`` + echter BM25-Index.
 
     ``rank_bm25`` ist eine echte, schnelle Pure-Python-Bibliothek – für
     die winzigen Test-Fixtures muss BM25 nicht separat gemockt werden.
-    Achtung: ``treffer`` darf nicht leer sein, sonst wirft
-    ``build_bm25_index`` (absichtlich, siehe dort).
+    Der Reranker ist ein leichtgewichtiger Stub (``StablePassthroughReranker``)
+    statt des echten Cross-Encoders – der würde einen ~200-MB-Modell-
+    Download in jedem Testlauf auslösen. Achtung: ``treffer`` darf nicht
+    leer sein, sonst wirft ``build_bm25_index`` (absichtlich, siehe dort).
     """
     collection = FakeCollection(treffer)
     bm25_index = rag.build_bm25_index(collection)
-    return rag.RagIndex(collection=collection, bm25_index=bm25_index)
+    return rag.RagIndex(
+        collection=collection,
+        bm25_index=bm25_index,
+        reranker=StablePassthroughReranker(),
+    )
 
 
 def make_test_db() -> sqlite3.Connection:

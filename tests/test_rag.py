@@ -846,6 +846,74 @@ class TestHybridSearch:
 
 
 # ---------------------------------------------------------------------------
+# rerank
+# ---------------------------------------------------------------------------
+
+
+class TestRerank:
+    def test_normalfall_sortiert_nach_rerank_score_absteigend(self):
+        kandidaten = [
+            {"id": "a", "quelle": "a.txt", "inhalt": "Text A", "fusion_score": 0.03},
+            {"id": "b", "quelle": "b.txt", "inhalt": "Text B", "fusion_score": 0.02},
+        ]
+        reranker = MagicMock()
+        # Laut Cross-Encoder ist "b" relevanter, obwohl "a" den besseren
+        # Hybrid-Fusion-Score hatte - genau das ist der Zweck von Reranking.
+        reranker.predict.return_value = [0.1, 0.9]
+
+        result = rag.rerank("Frage", kandidaten, reranker=reranker)
+
+        assert [r["id"] for r in result] == ["b", "a"]
+        assert result[0]["rerank_score"] == pytest.approx(0.9)
+        # fusion_score bleibt erhalten - additive Ergänzung, kein Ersatz.
+        assert result[0]["fusion_score"] == 0.02
+
+    def test_normalfall_top_n_begrenzt_ergebnisanzahl(self):
+        kandidaten = [
+            {"id": "a", "quelle": "a.txt", "inhalt": "A"},
+            {"id": "b", "quelle": "b.txt", "inhalt": "B"},
+            {"id": "c", "quelle": "c.txt", "inhalt": "C"},
+        ]
+        reranker = MagicMock()
+        reranker.predict.return_value = [0.5, 0.9, 0.1]
+
+        result = rag.rerank("Frage", kandidaten, reranker=reranker, top_n=2)
+
+        assert [r["id"] for r in result] == ["b", "a"]
+
+    def test_randfall_weniger_kandidaten_als_top_n(self):
+        kandidaten = [{"id": "a", "quelle": "a.txt", "inhalt": "Text A"}]
+        reranker = MagicMock()
+        reranker.predict.return_value = [0.5]
+
+        result = rag.rerank("Frage", kandidaten, reranker=reranker, top_n=5)
+
+        assert len(result) == 1
+
+    def test_randfall_leere_kandidaten_ruft_reranker_nicht_auf(self):
+        reranker = MagicMock()
+
+        result = rag.rerank("Frage", [], reranker=reranker)
+
+        assert result == []
+        reranker.predict.assert_not_called()
+
+    def test_fehlerfall_leere_frage(self):
+        reranker = MagicMock()
+        kandidaten = [{"id": "a", "quelle": "a.txt", "inhalt": "x"}]
+
+        with pytest.raises(ValueError, match="Frage darf nicht leer"):
+            rag.rerank("   ", kandidaten, reranker=reranker)
+
+    def test_fehlerfall_top_n_nicht_positiv(self):
+        reranker = MagicMock()
+        kandidaten = [{"id": "a", "quelle": "a.txt", "inhalt": "x"}]
+
+        with pytest.raises(ValueError, match="top_n muss positiv"):
+            rag.rerank("Frage", kandidaten, reranker=reranker, top_n=0)
+
+
+# ---------------------------------------------------------------------------
 # End-to-End-Test mit echtem Embedding-Modell.
 #
 # Standardmäßig übersprungen, weil das Modell beim ersten Lauf einen ~120 MB
@@ -890,3 +958,27 @@ def test_e2e_index_und_suche_finden_thematisch_passenden_chunk():  # pragma: no 
 
     # Der bestmögliche Treffer muss inhaltlich mit Hotels zu tun haben.
     assert treffer[0]["quelle"] == "reise.txt"
+
+
+@pytest.mark.skipif(
+    os.environ.get("RUN_E2E_TESTS") != "1",
+    reason="E2E-Test mit echtem Cross-Encoder; aktivieren mit RUN_E2E_TESTS=1",
+)
+def test_e2e_rerank_bevorzugt_thematisch_passenden_kandidaten():  # pragma: no cover
+    """Echter Cross-Encoder-Aufruf: der passendere Kandidat gewinnt."""
+    kandidaten = [
+        {
+            "id": "ueberstunden.txt#0",
+            "quelle": "ueberstunden.txt",
+            "inhalt": "Überstunden werden im Folgemonat in Zeitausgleich umgewandelt.",
+        },
+        {
+            "id": "reise.txt#0",
+            "quelle": "reise.txt",
+            "inhalt": "Bei Dienstreisen sind Hotels bis maximal vier Sterne erlaubt.",
+        },
+    ]
+
+    result = rag.rerank("Welche Hotelkategorie darf ich buchen?", kandidaten)
+
+    assert result[0]["quelle"] == "reise.txt"

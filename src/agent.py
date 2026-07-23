@@ -261,9 +261,17 @@ def _execute_dokumenten_suche(
             details=None,
         )
 
-    treffer = rag.hybrid_search(
-        rag_index.collection, rag_index.bm25_index, frage
+    # Breite Vorauswahl per Hybrid-Search (RERANK_CANDIDATE_POOL
+    # Kandidaten), dann Cross-Encoder-Reranking auf die finalen
+    # DEFAULT_N_RESULTS – der teurere, aber präzisere Reranker bewertet
+    # so nur eine Vorauswahl, nicht den gesamten Corpus.
+    kandidaten = rag.hybrid_search(
+        rag_index.collection,
+        rag_index.bm25_index,
+        frage,
+        n_results=rag.RERANK_CANDIDATE_POOL,
     )
+    treffer = rag.rerank(frage, kandidaten, rag_index.reranker)
 
     # Leere Trefferliste ist eine valide Information für Claude – kein
     # Fehler. Claude entscheidet selbst, ob er die Frage anders

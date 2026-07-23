@@ -28,6 +28,7 @@ import os
 import sqlite3
 import sys
 from pathlib import Path
+from typing import Any
 
 # Projekt-Root in den Importpfad aufnehmen, damit "from src import ..."
 # auch beim Aufruf via "streamlit run src/app.py" funktioniert. Streamlit
@@ -170,6 +171,12 @@ def open_bm25_index(chroma_path_str: str) -> rag.Bm25Index:
 
 
 @st.cache_resource
+def open_reranker() -> Any:
+    """Lädt den Cross-Encoder für Reranking einmalig pro Session."""
+    return rag.get_default_reranker()
+
+
+@st.cache_resource
 def open_db(db_path_str: str) -> sqlite3.Connection:
     """Öffnet die Controlling-Datenbank read-only und cacht die Verbindung."""
     return sql.connect(db_path_str)
@@ -220,7 +227,10 @@ else:
     try:
         collection = open_collection(str(CHROMA_PATH))
         bm25_index = open_bm25_index(str(CHROMA_PATH))
-        rag_index = rag.RagIndex(collection=collection, bm25_index=bm25_index)
+        reranker = open_reranker()
+        rag_index = rag.RagIndex(
+            collection=collection, bm25_index=bm25_index, reranker=reranker
+        )
         connection = open_db(str(CONTROLLING_PATH))
         schema = load_schema(str(CONTROLLING_PATH))
     except (FileNotFoundError, LookupError, ValueError) as exc:
@@ -284,11 +294,14 @@ def _format_tool_input(tool_input: dict) -> str:
 
 
 def _render_dokumenten_suche_details(treffer: list) -> None:
-    """Zeigt die Trefferliste der Doku-Suche (Hybrid-Search-Fusion-Score).
+    """Zeigt die Trefferliste der Doku-Suche: Hybrid-Vorauswahl + Reranking.
 
-    Seit Stage 2.4 liefert ``dokumenten_suche`` einen RRF-Fusions-Score
-    statt der bisherigen Cosine-Distanz – andere Semantik: höher ist
-    jetzt besser statt niedriger.
+    Seit Stage 2.5 ist die Liste nach ``rerank_score`` sortiert (Cross-
+    Encoder, höher = relevanter) – das ist der Score, der die finale
+    Reihenfolge bestimmt. ``fusion_score`` (Hybrid-Vorstufe, Stage 2.4)
+    wird zusätzlich angezeigt: macht die zweistufige Pipeline
+    (Hybrid-Vorauswahl → Reranking) im UI nachvollziehbar, statt nur das
+    Endergebnis zu zeigen.
     """
     if not treffer:
         st.info("Keine Treffer.")
@@ -297,7 +310,9 @@ def _render_dokumenten_suche_details(treffer: list) -> None:
     st.markdown(f"**Gefundene Quellen ({len(treffer)})**")
     for eintrag in treffer:
         st.markdown(
-            f"**{eintrag['quelle']}** (Fusion-Score {eintrag['fusion_score']:.4f})"
+            f"**{eintrag['quelle']}** "
+            f"(Rerank-Score {eintrag['rerank_score']:.4f}, "
+            f"Hybrid-Fusion-Score {eintrag['fusion_score']:.4f})"
         )
         auszug = eintrag["inhalt"][:300]
         if len(eintrag["inhalt"]) > 300:
