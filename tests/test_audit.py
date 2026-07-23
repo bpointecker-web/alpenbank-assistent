@@ -1,0 +1,192 @@
+"""Unit-Tests für src/audit.py.
+
+Pro Funktion mindestens drei Fälle (Normalfall, Randfall, Fehlerfall)
+gemäß CLAUDE.md.
+"""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from src import agent, audit
+
+
+def _antwort(traces, iterations_used=1, input_tokens=100, output_tokens=50):
+    return agent.AgentAntwort(
+        text="Antworttext",
+        traces=traces,
+        iterations_used=iterations_used,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+    )
+
+
+def _trace(name, is_error, details):
+    return agent.ToolCallTrace(
+        name=name,
+        tool_input={},
+        tool_use_id="tu_001",
+        ergebnis=agent.ToolErgebnis(text="...", is_error=is_error, details=details),
+    )
+
+
+# ---------------------------------------------------------------------------
+# baue_audit_eintrag
+# ---------------------------------------------------------------------------
+
+
+class TestBaueAuditEintrag:
+    def test_normalfall_sammelt_quellen_und_sql(self):
+        traces = [
+            _trace(
+                "dokumenten_suche",
+                False,
+                [{"quelle": "reisekostenrichtlinie.txt", "inhalt": "..."}],
+            ),
+            _trace(
+                "datenbank_abfrage",
+                False,
+                {"sql": "SELECT name FROM konten", "tabelle": "..."},
+            ),
+        ]
+
+        eintrag = audit.baue_audit_eintrag("Frage?", _antwort(traces), "claude-sonnet-4-6")
+
+        assert eintrag.quellen == ["reisekostenrichtlinie.txt"]
+        assert eintrag.sql_statements == ["SELECT name FROM konten"]
+        assert eintrag.modell == "claude-sonnet-4-6"
+        assert eintrag.input_tokens == 100
+        assert eintrag.output_tokens == 50
+        assert len(eintrag.tool_aufrufe) == 2
+
+    def test_normalfall_dedupliziert_mehrfache_quellen(self):
+        traces = [
+            _trace(
+                "dokumenten_suche",
+                False,
+                [
+                    {"quelle": "a.txt", "inhalt": "..."},
+                    {"quelle": "a.txt", "inhalt": "..."},
+                    {"quelle": "b.txt", "inhalt": "..."},
+                ],
+            )
+        ]
+
+        eintrag = audit.baue_audit_eintrag("Frage?", _antwort(traces), "modell")
+
+        assert eintrag.quellen == ["a.txt", "b.txt"]
+
+    def test_randfall_abgelehnter_sql_aufruf_wird_trotzdem_geloggt(self):
+        # Ein abgelehnter Schreibversuch ist audit-relevant, kein Grund
+        # zum Weglassen - im Gegenteil, das ist der Beleg, dass die
+        # Whitelist gegriffen hat.
+        traces = [
+            _trace(
+                "datenbank_abfrage",
+                True,
+                {"sql": "DELETE FROM buchungen"},
+            )
+        ]
+
+        eintrag = audit.baue_audit_eintrag("Lösch alles!", _antwort(traces), "modell")
+
+        assert eintrag.sql_statements == ["DELETE FROM buchungen"]
+        assert eintrag.tool_aufrufe[0]["is_error"] is True
+
+    def test_randfall_keine_tool_aufrufe(self):
+        eintrag = audit.baue_audit_eintrag("Hallo", _antwort([]), "modell")
+
+        assert eintrag.quellen == []
+        assert eintrag.sql_statements == []
+        assert eintrag.tool_aufrufe == []
+
+    def test_randfall_dokumenten_suche_ohne_details_bricht_nicht_ab(self):
+        # Bei einem Eingabe-Fehler (z. B. leere Frage) ist details=None -
+        # baue_audit_eintrag muss das tolerieren, nicht abstürzen.
+        traces = [_trace("dokumenten_suche", True, None)]
+
+        eintrag = audit.baue_audit_eintrag("Frage?", _antwort(traces), "modell")
+
+        assert eintrag.quellen == []
+
+
+# ---------------------------------------------------------------------------
+# log_audit_eintrag
+# ---------------------------------------------------------------------------
+
+
+class TestLogAuditEintrag:
+    def test_normalfall_schreibt_valide_json_zeile(self, tmp_path):
+        pfad = tmp_path / "audit_log.jsonl"
+        eintrag = audit.baue_audit_eintrag("Frage?", _antwort([]), "modell")
+
+        audit.log_audit_eintrag(eintrag, pfad)
+
+        zeilen = pfad.read_text(encoding="utf-8").splitlines()
+        assert len(zeilen) == 1
+        geladen = json.loads(zeilen[0])
+        assert geladen["frage"] == "Frage?"
+        assert geladen["modell"] == "modell"
+
+    def test_normalfall_mehrere_eintraege_werden_angehaengt(self, tmp_path):
+        pfad = tmp_path / "audit_log.jsonl"
+        audit.log_audit_eintrag(
+            audit.baue_audit_eintrag("Erste Frage", _antwort([]), "modell"), pfad
+        )
+        audit.log_audit_eintrag(
+            audit.baue_audit_eintrag("Zweite Frage", _antwort([]), "modell"), pfad
+        )
+
+        zeilen = pfad.read_text(encoding="utf-8").splitlines()
+        assert len(zeilen) == 2
+        assert json.loads(zeilen[0])["frage"] == "Erste Frage"
+        assert json.loads(zeilen[1])["frage"] == "Zweite Frage"
+
+    def test_randfall_uebergeordnetes_verzeichnis_wird_angelegt(self, tmp_path):
+        pfad = tmp_path / "neuer_ordner" / "audit_log.jsonl"
+        eintrag = audit.baue_audit_eintrag("Frage?", _antwort([]), "modell")
+
+        audit.log_audit_eintrag(eintrag, pfad)
+
+        assert pfad.exists()
+
+
+# ---------------------------------------------------------------------------
+# lies_audit_log
+# ---------------------------------------------------------------------------
+
+
+class TestLiesAuditLog:
+    def test_normalfall_liest_alle_eintraege(self, tmp_path):
+        pfad = tmp_path / "audit_log.jsonl"
+        for i in range(3):
+            audit.log_audit_eintrag(
+                audit.baue_audit_eintrag(f"Frage {i}", _antwort([]), "modell"), pfad
+            )
+
+        eintraege = audit.lies_audit_log(pfad)
+
+        assert len(eintraege) == 3
+        assert eintraege[0]["frage"] == "Frage 0"
+
+    def test_normalfall_limit_beschraenkt_auf_letzte_n(self, tmp_path):
+        pfad = tmp_path / "audit_log.jsonl"
+        for i in range(5):
+            audit.log_audit_eintrag(
+                audit.baue_audit_eintrag(f"Frage {i}", _antwort([]), "modell"), pfad
+            )
+
+        eintraege = audit.lies_audit_log(pfad, limit=2)
+
+        assert [e["frage"] for e in eintraege] == ["Frage 3", "Frage 4"]
+
+    def test_randfall_datei_existiert_nicht(self, tmp_path):
+        assert audit.lies_audit_log(tmp_path / "gibt_es_nicht.jsonl") == []
+
+    def test_randfall_leere_datei(self, tmp_path):
+        pfad = tmp_path / "audit_log.jsonl"
+        pfad.write_text("", encoding="utf-8")
+
+        assert audit.lies_audit_log(pfad) == []

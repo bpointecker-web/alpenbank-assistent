@@ -4,6 +4,7 @@ __pycache__/
 .venv/
 .pytest_cache/
 data/*.db
+data/audit_log.jsonl
 data/chroma/
 data/chroma_with_vectors.sqlite3
 data/chroma_with_vectors.sqbpro

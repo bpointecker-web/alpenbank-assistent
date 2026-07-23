@@ -42,7 +42,7 @@ import streamlit as st  # noqa: E402
 from anthropic import Anthropic  # noqa: E402
 from dotenv import load_dotenv  # noqa: E402
 
-from src import agent, demo, rag, sql  # noqa: E402
+from src import agent, audit, demo, rag, sql  # noqa: E402
 from src.logging_config import setup_logging  # noqa: E402
 
 # .env laden, bevor wir auf Umgebungsvariablen zugreifen.
@@ -414,6 +414,14 @@ if user_input:
                 "wurden protokolliert. Bitte versuche es erneut."
             )
             st.stop()
+
+    # Audit-Log nur im Live-Modus: eine Demo-Modus-Antwort ist keine
+    # echte Interaktion mit dem System (kein API-Call, kein echter
+    # Tool-Zugriff) und hat im Audit-Trail nichts verloren.
+    if not DEMO_MODE:
+        audit.log_audit_eintrag(
+            audit.baue_audit_eintrag(user_input, antwort, agent.MODEL)
+        )
 
     assistant_msg = {
         "role": "assistant",
