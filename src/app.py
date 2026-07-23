@@ -66,7 +66,7 @@ CHROMA_PATH = Path("data/chroma")
 CONTROLLING_PATH = Path("data/controlling.db")
 
 # set_page_config muss der erste Streamlit-Aufruf sein.
-st.set_page_config(page_title="Alpenbank-Assistent", page_icon="🏔️")
+st.set_page_config(page_title="Alpenbank-Assistent", page_icon="🏔️", layout="wide")
 
 # Gebrandeter Header statt st.title(): kein echtes Logo vorhanden, daher
 # ein sauber gestalteter Text-Banner in der Bank-Farbpalette aus
