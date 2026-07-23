@@ -155,6 +155,21 @@ def open_collection(chroma_path_str: str):
 
 
 @st.cache_resource
+def open_bm25_index(chroma_path_str: str) -> rag.Bm25Index:
+    """Baut den In-Memory-BM25-Index einmalig pro Session (Hybrid-Search).
+
+    Öffnet eine eigene, leichte Collection-Referenz OHNE Embedding-
+    Funktion – ``collection.get()`` (das ``build_bm25_index`` intern
+    aufruft) braucht sie nicht. Vermeidet, das ~120-MB-Embedding-Modell
+    ein zweites Mal zu laden, nur um an die Chunk-Texte zu kommen (analog
+    zu ``scripts/rag_inspect.py``s ``with_embedding=False``-Pfad).
+    """
+    client = chromadb.PersistentClient(path=chroma_path_str)
+    collection = client.get_collection(name=rag.COLLECTION_NAME)
+    return rag.build_bm25_index(collection)
+
+
+@st.cache_resource
 def open_db(db_path_str: str) -> sqlite3.Connection:
     """Öffnet die Controlling-Datenbank read-only und cacht die Verbindung."""
     return sql.connect(db_path_str)
@@ -191,7 +206,7 @@ def load_demo_cache(cache_path_str: str) -> dict:
 # dauert deshalb spürbar länger.
 if DEMO_MODE:
     client = None
-    collection = None
+    rag_index = None
     connection = None
     schema = None
     try:
@@ -204,9 +219,11 @@ else:
     client = build_client(api_key)
     try:
         collection = open_collection(str(CHROMA_PATH))
+        bm25_index = open_bm25_index(str(CHROMA_PATH))
+        rag_index = rag.RagIndex(collection=collection, bm25_index=bm25_index)
         connection = open_db(str(CONTROLLING_PATH))
         schema = load_schema(str(CONTROLLING_PATH))
-    except (FileNotFoundError, LookupError) as exc:
+    except (FileNotFoundError, LookupError, ValueError) as exc:
         st.error(str(exc))
         st.stop()
 
@@ -267,7 +284,12 @@ def _format_tool_input(tool_input: dict) -> str:
 
 
 def _render_dokumenten_suche_details(treffer: list) -> None:
-    """Zeigt die Trefferliste der Doku-Suche."""
+    """Zeigt die Trefferliste der Doku-Suche (Hybrid-Search-Fusion-Score).
+
+    Seit Stage 2.4 liefert ``dokumenten_suche`` einen RRF-Fusions-Score
+    statt der bisherigen Cosine-Distanz – andere Semantik: höher ist
+    jetzt besser statt niedriger.
+    """
     if not treffer:
         st.info("Keine Treffer.")
         return
@@ -275,7 +297,7 @@ def _render_dokumenten_suche_details(treffer: list) -> None:
     st.markdown(f"**Gefundene Quellen ({len(treffer)})**")
     for eintrag in treffer:
         st.markdown(
-            f"**{eintrag['quelle']}** (Distanz {eintrag['distanz']:.3f})"
+            f"**{eintrag['quelle']}** (Fusion-Score {eintrag['fusion_score']:.4f})"
         )
         auszug = eintrag["inhalt"][:300]
         if len(eintrag["inhalt"]) > 300:
@@ -362,7 +384,7 @@ if user_input:
                     frage=user_input,
                     history=history_for_agent(st.session_state.messages[:-1]),
                     db=connection,
-                    collection=collection,
+                    rag_index=rag_index,
                     schema=schema,
                 )
         except Exception:

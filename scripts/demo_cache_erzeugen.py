@@ -56,6 +56,8 @@ def main() -> None:
 
     chroma_client = chromadb.PersistentClient(path=str(CHROMA_PATH))
     collection = rag.create_collection(chroma_client, name=rag.COLLECTION_NAME)
+    bm25_index = rag.build_bm25_index(collection)
+    rag_index = rag.RagIndex(collection=collection, bm25_index=bm25_index)
 
     connection = sql.connect(str(CONTROLLING_PATH))
     schema = sql.build_schema_description(connection)
@@ -68,7 +70,7 @@ def main() -> None:
             frage=frage,
             history=[],
             db=connection,
-            collection=collection,
+            rag_index=rag_index,
             schema=schema,
         )
         eintraege.append({"frage": frage, **demo.serialize_antwort(antwort)})

@@ -14,7 +14,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from src import agent
+from src import agent, rag
 
 
 # ---------------------------------------------------------------------------
@@ -25,28 +25,46 @@ from src import agent
 class FakeCollection:
     """Minimaler Stub einer ChromaDB-Collection für Unit-Tests.
 
-    Wir replizieren das Antwortformat von ``collection.query`` (Liste-
-    von-Listen) statt eine echte ChromaDB anzulegen – das spart das
-    Embedding-Modell und macht den Test deterministisch.
+    Unterstützt sowohl ``.query()`` (Dense-Suche, von ``rag.search()``
+    genutzt) als auch ``.get()`` (von ``rag.build_bm25_index()`` genutzt)
+    – beide leiten ihre Antwort aus derselben Trefferliste ab. Das hält
+    Hybrid-Search-Tests konsistent: Dense- und BM25-Pfad sehen denselben
+    Chunk-Inhalt, ohne eine echte ChromaDB anzulegen (spart das
+    Embedding-Modell, macht den Test deterministisch).
     """
 
-    def __init__(self, antwort: dict):
-        self.antwort = antwort
+    def __init__(self, treffer: list[dict]):
+        self.treffer = treffer
         self.aufrufe: list[dict] = []
 
     def query(self, query_texts, n_results):
         self.aufrufe.append({"query_texts": query_texts, "n_results": n_results})
-        return self.antwort
+        return {
+            "ids": [[t["id"] for t in self.treffer]],
+            "documents": [[t["inhalt"] for t in self.treffer]],
+            "metadatas": [[{"quelle": t["quelle"]} for t in self.treffer]],
+            "distances": [[t["distanz"] for t in self.treffer]],
+        }
+
+    def get(self):
+        return {
+            "ids": [t["id"] for t in self.treffer],
+            "documents": [t["inhalt"] for t in self.treffer],
+            "metadatas": [{"quelle": t["quelle"]} for t in self.treffer],
+        }
 
 
-def make_chroma_antwort(treffer: list[dict]) -> dict:
-    """Baut das geschachtelte Listen-Format, das ChromaDB.query liefert."""
-    return {
-        "ids": [[t["id"] for t in treffer]],
-        "documents": [[t["inhalt"] for t in treffer]],
-        "metadatas": [[{"quelle": t["quelle"]} for t in treffer]],
-        "distances": [[t["distanz"] for t in treffer]],
-    }
+def make_rag_index(treffer: list[dict]) -> rag.RagIndex:
+    """Baut ein ``RagIndex``-Bündel: ``FakeCollection`` + echter BM25-Index.
+
+    ``rank_bm25`` ist eine echte, schnelle Pure-Python-Bibliothek – für
+    die winzigen Test-Fixtures muss BM25 nicht separat gemockt werden.
+    Achtung: ``treffer`` darf nicht leer sein, sonst wirft
+    ``build_bm25_index`` (absichtlich, siehe dort).
+    """
+    collection = FakeCollection(treffer)
+    bm25_index = rag.build_bm25_index(collection)
+    return rag.RagIndex(collection=collection, bm25_index=bm25_index)
 
 
 def make_test_db() -> sqlite3.Connection:
@@ -285,31 +303,44 @@ class TestExecuteToolDokumentenSuche:
                 "distanz": 0.12,
             }
         ]
-        collection = FakeCollection(make_chroma_antwort(treffer))
+        rag_index = make_rag_index(treffer)
 
         ergebnis = agent.execute_tool(
             "dokumenten_suche",
             {"frage": "Welche Hotelkategorie?"},
             db=None,
-            collection=collection,
+            rag_index=rag_index,
         )
 
         assert ergebnis.is_error is False
         assert "Hotelkategorie maximal vier Sterne." in ergebnis.text
         assert "reisekostenrichtlinie.txt" in ergebnis.text
-        assert ergebnis.details == treffer
+        # Seit Stage 2.4 (Hybrid-Search) liefert das Tool einen
+        # fusion_score statt der ursprünglichen Distanz - Inhalt/Quelle
+        # bleiben gleich, deshalb Feld-für-Feld statt Exakt-Vergleich.
+        assert len(ergebnis.details) == 1
+        assert ergebnis.details[0]["id"] == treffer[0]["id"]
+        assert ergebnis.details[0]["quelle"] == treffer[0]["quelle"]
+        assert ergebnis.details[0]["inhalt"] == treffer[0]["inhalt"]
+        assert "fusion_score" in ergebnis.details[0]
 
-    def test_randfall_leere_treffer_kein_fehler(self):
+    def test_randfall_leere_treffer_kein_fehler(self, monkeypatch):
         # Per Architektur-Skizze A4: keine Treffer ist eine valide
         # Auskunft, kein Fehler. Claude entscheidet selbst, was er
-        # damit macht.
-        collection = FakeCollection(make_chroma_antwort([]))
+        # damit macht. Hybrid-Search kann bei einem befüllten Corpus
+        # praktisch nie eine leere Trefferliste liefern (Dense und BM25
+        # liefern immer die nächstbesten Kandidaten) - wir testen den
+        # Verarbeitungspfad daher isoliert per Monkeypatch.
+        rag_index = make_rag_index(
+            [{"id": "x", "quelle": "q", "inhalt": "Inhalt", "distanz": 0.5}]
+        )
+        monkeypatch.setattr(rag, "hybrid_search", lambda *a, **kw: [])
 
         ergebnis = agent.execute_tool(
             "dokumenten_suche",
             {"frage": "Etwas, das nirgends steht"},
             db=None,
-            collection=collection,
+            rag_index=rag_index,
         )
 
         assert ergebnis.is_error is False
@@ -317,33 +348,37 @@ class TestExecuteToolDokumentenSuche:
         assert ergebnis.details == []
 
     def test_fehlerfall_leere_frage(self):
-        collection = FakeCollection(make_chroma_antwort([]))
+        rag_index = make_rag_index(
+            [{"id": "x", "quelle": "q", "inhalt": "Inhalt", "distanz": 0.5}]
+        )
 
         ergebnis = agent.execute_tool(
             "dokumenten_suche",
             {"frage": "   "},
             db=None,
-            collection=collection,
+            rag_index=rag_index,
         )
 
         assert ergebnis.is_error is True
         assert "leer" in ergebnis.text.lower()
         # Bei Eingabe-Fehler darf das Tool die Collection erst gar
         # nicht anfassen – sonst kosten wir das Embedding sinnlos.
-        assert collection.aufrufe == []
+        assert rag_index.collection.aufrufe == []
 
     def test_fehlerfall_fehlendes_frage_feld(self):
-        collection = FakeCollection(make_chroma_antwort([]))
+        rag_index = make_rag_index(
+            [{"id": "x", "quelle": "q", "inhalt": "Inhalt", "distanz": 0.5}]
+        )
 
         ergebnis = agent.execute_tool(
             "dokumenten_suche",
             {},
             db=None,
-            collection=collection,
+            rag_index=rag_index,
         )
 
         assert ergebnis.is_error is True
-        assert collection.aufrufe == []
+        assert rag_index.collection.aufrufe == []
 
 
 # ---------------------------------------------------------------------------
@@ -359,7 +394,7 @@ class TestExecuteToolDatenbankAbfrage:
                 "datenbank_abfrage",
                 {"sql": "SELECT name, betrag FROM konten ORDER BY name"},
                 db=db,
-                collection=None,
+                rag_index=None,
             )
         finally:
             db.close()
@@ -377,7 +412,7 @@ class TestExecuteToolDatenbankAbfrage:
                 "datenbank_abfrage",
                 {"sql": "SELECT name FROM konten WHERE name = 'gibt-es-nicht'"},
                 db=db,
-                collection=None,
+                rag_index=None,
             )
         finally:
             db.close()
@@ -394,7 +429,7 @@ class TestExecuteToolDatenbankAbfrage:
                 "datenbank_abfrage",
                 {"sql": "DELETE FROM konten"},
                 db=db,
-                collection=None,
+                rag_index=None,
             )
         finally:
             db.close()
@@ -417,7 +452,7 @@ class TestExecuteToolDatenbankAbfrage:
                 "datenbank_abfrage",
                 {"sql": "SELECT * FROM nicht_existente_tabelle"},
                 db=db,
-                collection=None,
+                rag_index=None,
             )
         finally:
             db.close()
@@ -433,7 +468,7 @@ class TestExecuteToolDatenbankAbfrage:
                 "datenbank_abfrage",
                 {"sql": "   "},
                 db=db,
-                collection=None,
+                rag_index=None,
             )
         finally:
             db.close()
@@ -456,7 +491,7 @@ class TestExecuteToolDispatcher:
                 "irgendein_falscher_name",
                 {"frage": "x"},
                 db=None,
-                collection=None,
+                rag_index=None,
             )
 
 
@@ -467,16 +502,16 @@ class TestExecuteToolDispatcher:
 
 class TestAnswerQuestion:
     def test_normalfall_keine_tool_nutzung_direkter_text(self):
-        # Claude antwortet sofort ohne Tools (z. B. bei Smalltalk).
+        # Claude antwortet sofort ohne Tools (z. B. bei Smalltalk) - der
+        # RAG-Index wird in diesem Pfad nie angefasst.
         client = MockClient([make_text_response("Hallo, gerne!")])
-        collection = FakeCollection(make_chroma_antwort([]))
 
         antwort = agent.answer_question(
             client,
             frage="Hallo",
             history=[],
             db=None,
-            collection=collection,
+            rag_index=None,
             schema="<dummy/>",
         )
 
@@ -495,7 +530,7 @@ class TestAnswerQuestion:
                 "distanz": 0.1,
             }
         ]
-        collection = FakeCollection(make_chroma_antwort(treffer))
+        rag_index = make_rag_index(treffer)
         client = MockClient(
             [
                 make_tool_use_response(
@@ -514,7 +549,7 @@ class TestAnswerQuestion:
             frage="Welche Hotelkategorie darf ich buchen?",
             history=[],
             db=None,
-            collection=collection,
+            rag_index=rag_index,
             schema="<dummy/>",
         )
 
@@ -541,7 +576,7 @@ class TestAnswerQuestion:
                 "distanz": 0.1,
             }
         ]
-        collection = FakeCollection(make_chroma_antwort(treffer))
+        rag_index = make_rag_index(treffer)
         db = make_test_db()
         try:
             client = MockClient(
@@ -569,7 +604,7 @@ class TestAnswerQuestion:
                 frage="Was sagt das Konto X aus und wie heißen unsere Konten?",
                 history=[],
                 db=db,
-                collection=collection,
+                rag_index=rag_index,
                 schema="<dummy/>",
             )
         finally:
@@ -600,7 +635,7 @@ class TestAnswerQuestion:
                 "distanz": 0.2,
             }
         ]
-        collection = FakeCollection(make_chroma_antwort(treffer))
+        rag_index = make_rag_index(treffer)
         db = make_test_db()
         try:
             client = MockClient(
@@ -624,7 +659,7 @@ class TestAnswerQuestion:
                 frage="Warum ist der Aufwand gestiegen?",
                 history=[],
                 db=db,
-                collection=collection,
+                rag_index=rag_index,
                 schema="<dummy/>",
             )
         finally:
@@ -647,7 +682,7 @@ class TestAnswerQuestion:
                 "distanz": 0.5,
             }
         ]
-        collection = FakeCollection(make_chroma_antwort(treffer))
+        rag_index = make_rag_index(treffer)
         # Drei Iterationen erlaubt → drei Tool-Use-Antworten reichen
         # für ein erreichtes Limit.
         client = MockClient(
@@ -664,7 +699,7 @@ class TestAnswerQuestion:
             frage="x",
             history=[],
             db=None,
-            collection=collection,
+            rag_index=rag_index,
             schema="<dummy/>",
             max_iterations=3,
         )
@@ -694,7 +729,7 @@ class TestAnswerQuestion:
                 frage="Lösch alles",
                 history=[],
                 db=db,
-                collection=None,
+                rag_index=None,
                 schema="<dummy/>",
             )
         finally:
@@ -727,7 +762,7 @@ class TestAnswerQuestion:
             frage="neue Frage",
             history=original_history,
             db=None,
-            collection=None,
+            rag_index=None,
             schema="<dummy/>",
         )
 
@@ -741,7 +776,7 @@ class TestAnswerQuestion:
             frage="x",
             history=[],
             db=None,
-            collection=None,
+            rag_index=None,
             schema="<MEIN-SCHEMA-MARKER/>",
         )
 
@@ -759,7 +794,7 @@ class TestAnswerQuestion:
             frage="x",
             history=[],
             db=None,
-            collection=None,
+            rag_index=None,
             schema="<dummy/>",
         )
 
@@ -777,6 +812,6 @@ class TestAnswerQuestion:
                 frage="   ",
                 history=[],
                 db=None,
-                collection=None,
+                rag_index=None,
                 schema="<dummy/>",
             )

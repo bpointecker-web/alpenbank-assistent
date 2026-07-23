@@ -12,8 +12,9 @@ auf Englisch trainiert ist.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from src.settings import SETTINGS
 
@@ -394,3 +395,241 @@ def format_context(treffer: list[dict[str, Any]]) -> str:
         )
 
     return "<kontext>\n" + "\n".join(bloecke) + "\n</kontext>"
+
+
+# ---------------------------------------------------------------------------
+# Hybrid-Search: Dense (ChromaDB) + BM25, kombiniert per Reciprocal Rank
+# Fusion. Reine Keyword-Suche (BM25) und semantische Embedding-Suche
+# (dense) haben unterschiedliche Schwächen: BM25 findet exakte Fachbegriffe
+# und Zahlen (z. B. "Kostenstelle 4711", "Kilometergeld") zuverlässig, auch
+# wenn das Embedding-Modell sie semantisch falsch einordnet; dense findet
+# sinnverwandte Formulierungen, die BM25 mangels Wortüberlappung übersieht.
+# RRF kombiniert beide Rangfolgen, ohne dass ihre Rohwerte (Cosine-Distanz
+# vs. BM25-Score) vergleichbar sein müssen – nur die Rangposition zählt.
+# ---------------------------------------------------------------------------
+
+
+class Bm25Index(NamedTuple):
+    """Gebündelter In-Memory-BM25-Index.
+
+    ``bm25`` ist die trainierte ``BM25Okapi``-Instanz, ``eintraege`` die
+    parallele Liste der Chunk-Metadaten (id/quelle/inhalt) in exakt der
+    Reihenfolge, die beim Tokenisieren verwendet wurde – ``bm25_search``
+    braucht diese Zuordnung, um BM25-Scores wieder auf vollständige
+    Treffer-Dicts abzubilden (``BM25Okapi`` selbst kennt nur Positionen,
+    keine IDs).
+    """
+
+    bm25: Any
+    eintraege: list[dict[str, Any]]
+
+
+class RagIndex(NamedTuple):
+    """Bündelt beide Retrieval-Indizes für den Tool-Use-Agenten.
+
+    Ersetzt seit Stage 2.4 die einzelne ``collection`` als Parameter in
+    ``agent.execute_tool``/``agent.answer_question`` – Hybrid-Search
+    braucht sowohl die ChromaDB-Collection (dense) als auch den
+    BM25-Index (Keyword), ein weiterer Einzelparameter wäre unübersichtlich
+    geworden.
+    """
+
+    collection: Any
+    bm25_index: Bm25Index
+
+
+_TOKEN_PATTERN = re.compile(r"[a-zäöüß0-9]+")
+
+
+def _tokenize(text: str) -> list[str]:
+    """Zerlegt einen Text in lowercase Wort-Tokens für BM25.
+
+    Einfache Regex-Tokenisierung statt eines NLP-Tokenizers (z. B. spaCy):
+    reicht für unseren kleinen deutschen Corpus, ohne eine weitere
+    Abhängigkeit einzuführen. Zahlen bleiben als eigene Tokens erhalten,
+    weil Kostenstellen-/Kontonummern (z. B. "4711") für die Keyword-Suche
+    relevant sind.
+    """
+    return _TOKEN_PATTERN.findall(text.lower())
+
+
+def build_bm25_index(collection: Any) -> Bm25Index:
+    """Baut einen In-Memory-BM25-Index aus allen Chunks einer Collection.
+
+    Wird einmalig pro Prozess/Session aufgerufen (siehe
+    ``app.py::open_bm25_index``), nicht pro Suchanfrage – Tokenisieren von
+    ~20 kurzen Chunks kostet Millisekunden. Kein zusätzliches persistentes
+    Artefakt neben ChromaDB: das würde nur ein Synchronisationsrisiko
+    schaffen (BM25-Index veraltet, wenn ``data/chroma/`` neu aufgebaut
+    wird, der BM25-Cache aber nicht).
+
+    ``collection.get()`` liefert flache Listen (anders als ``query()``,
+    das Listen-von-Listen liefert).
+
+    Wirft ``ValueError`` bei einer leeren Collection: ``BM25Okapi`` bricht
+    bei einem leeren Corpus mit einer kryptischen ``ZeroDivisionError``
+    ab (interne Idf-Mittelwertberechnung teilt durch die Dokumentanzahl).
+    Eine leere Collection ist ein Konfigurationsfehler (Indexierungs-
+    Skript wurde nicht ausgeführt), kein legitimer Laufzeitzustand – den
+    wollen wir mit einer sprechenden Meldung abfangen, bevor die
+    kryptische Exception den Nutzer erreicht.
+    """
+    from rank_bm25 import BM25Okapi
+
+    rohergebnis = collection.get()
+    ids = rohergebnis["ids"]
+    documents = rohergebnis["documents"]
+    metadatas = rohergebnis["metadatas"]
+
+    if not ids:
+        raise ValueError(
+            "Collection enthält keine Chunks. Bitte zuerst "
+            "`python scripts/rag_index.py` ausführen."
+        )
+
+    bm25 = BM25Okapi([_tokenize(dokument) for dokument in documents])
+    eintraege = [
+        {"id": chunk_id, "quelle": metadata.get("quelle", ""), "inhalt": dokument}
+        for chunk_id, dokument, metadata in zip(
+            ids, documents, metadatas, strict=True
+        )
+    ]
+
+    return Bm25Index(bm25=bm25, eintraege=eintraege)
+
+
+def bm25_search(
+    bm25_index: Bm25Index,
+    frage: str,
+    n_results: int = DEFAULT_N_RESULTS,
+) -> list[dict[str, Any]]:
+    """Sucht die ``n_results`` besten Treffer per BM25-Keyword-Score.
+
+    Rückgabeform bewusst analog zu ``search()``: Liste von Dicts mit
+    ``id``/``quelle``/``inhalt`` – hier zusätzlich ``score`` (BM25-Wert,
+    höher = relevanter; anders als die Cosine-``distanz`` bei ``search()``,
+    wo niedriger = relevanter ist). ``reciprocal_rank_fusion`` braucht nur
+    die Rangfolge, nicht den Rohwert, daher ist diese unterschiedliche
+    Semantik hier unschädlich.
+
+    Wirft ``ValueError`` bei leerer Frage oder nicht-positivem
+    ``n_results`` (analog ``search()``).
+    """
+    if not frage or not frage.strip():
+        raise ValueError("Frage darf nicht leer sein.")
+    if n_results <= 0:
+        raise ValueError(f"n_results muss positiv sein, war {n_results}.")
+
+    tokens = _tokenize(frage)
+    scores = bm25_index.bm25.get_scores(tokens)
+
+    reihenfolge = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[
+        :n_results
+    ]
+
+    return [
+        {
+            "id": bm25_index.eintraege[i]["id"],
+            "quelle": bm25_index.eintraege[i]["quelle"],
+            "inhalt": bm25_index.eintraege[i]["inhalt"],
+            "score": float(scores[i]),
+        }
+        for i in reihenfolge
+    ]
+
+
+# Dämpfungsfaktor für Reciprocal Rank Fusion – 60 ist der in der Literatur
+# gängige Standardwert (Cormack et al., 2009). Verhindert, dass ein
+# Spitzenplatz in nur einer der beiden Rangfolgen einen unverhältnismäßig
+# hohen Fusions-Score erzeugt.
+RRF_K = 60
+
+
+def reciprocal_rank_fusion(
+    rankings: list[list[str]], k: int = RRF_K
+) -> list[tuple[str, float]]:
+    """Fusioniert mehrere Rangfolgen (z. B. dense + BM25) per RRF.
+
+    Jede Rangfolge ist eine Liste von Chunk-IDs, beste Übereinstimmung
+    zuerst. Ein Dokument, das in mehreren Rangfolgen weit oben steht,
+    bekommt einen hohen Fusions-Score. RRF braucht dafür keine
+    vergleichbaren Rohwerte (Cosine-Distanz und BM25-Score sind nicht
+    direkt vergleichbar) – nur die Rangposition zählt:
+
+        score(d) = Summe über alle Rangfolgen r, die d enthalten,
+                   von 1 / (k + rang_r(d))
+
+    Reine Funktion ohne Seiteneffekte, deshalb ohne Mocks testbar. Gibt
+    ``(id, score)``-Paare zurück, absteigend nach Score sortiert. Wirft
+    ``ValueError`` bei ``k <= 0``.
+    """
+    if k <= 0:
+        raise ValueError(f"k muss positiv sein, war {k}.")
+
+    scores: dict[str, float] = {}
+    for rangfolge in rankings:
+        for rang, chunk_id in enumerate(rangfolge, start=1):
+            scores[chunk_id] = scores.get(chunk_id, 0.0) + 1.0 / (k + rang)
+
+    return sorted(scores.items(), key=lambda paar: paar[1], reverse=True)
+
+
+# Wie viele Kandidaten wir vor der Fusion aus JEDER Suchmethode holen.
+# Größer als n_results, damit RRF genug Auswahl hat, um Treffer
+# hochzuspülen, die in einer Methode weiter unten, in der anderen aber
+# ganz oben stehen.
+HYBRID_CANDIDATE_MULTIPLIER = 4
+
+
+def hybrid_search(
+    collection: Any,
+    bm25_index: Bm25Index,
+    frage: str,
+    n_results: int = DEFAULT_N_RESULTS,
+) -> list[dict[str, Any]]:
+    """Kombiniert Dense- (ChromaDB) und BM25-Suche per Reciprocal Rank Fusion.
+
+    Holt von beiden Suchmethoden ``n_results * HYBRID_CANDIDATE_MULTIPLIER``
+    Kandidaten (mehr Auswahl für die Fusion als am Ende gebraucht wird),
+    fusioniert die beiden Rangfolgen und gibt die ``n_results`` besten
+    zurück. Rückgabeform wie ``search()``: Liste von Dicts mit
+    ``id``/``quelle``/``inhalt`` – statt ``distanz`` jetzt
+    ``fusion_score`` (höher = relevanter, andere Semantik als die
+    bisherige Distanz).
+
+    Wirft ``ValueError`` bei leerer Frage oder nicht-positivem
+    ``n_results`` (analog ``search()``/``bm25_search()``).
+    """
+    if not frage or not frage.strip():
+        raise ValueError("Frage darf nicht leer sein.")
+    if n_results <= 0:
+        raise ValueError(f"n_results muss positiv sein, war {n_results}.")
+
+    n_kandidaten = n_results * HYBRID_CANDIDATE_MULTIPLIER
+    dense_treffer = search(collection, frage, n_results=n_kandidaten)
+    bm25_treffer = bm25_search(bm25_index, frage, n_results=n_kandidaten)
+
+    # Lookup für quelle/inhalt nach der Fusion: RRF kennt nur IDs und
+    # Scores, nicht die Chunk-Inhalte. Beide Trefferlisten zusammen
+    # decken jede ID ab, die in der fusionierten Rangfolge auftauchen
+    # kann – eine ID kann nur fusioniert werden, wenn sie in mindestens
+    # einer der beiden Listen vorkam.
+    lookup = {t["id"]: t for t in dense_treffer}
+    lookup.update({t["id"]: t for t in bm25_treffer})
+
+    fusioniert = reciprocal_rank_fusion(
+        [
+            [t["id"] for t in dense_treffer],
+            [t["id"] for t in bm25_treffer],
+        ]
+    )
+
+    return [
+        {
+            "id": chunk_id,
+            "quelle": lookup[chunk_id]["quelle"],
+            "inhalt": lookup[chunk_id]["inhalt"],
+            "fusion_score": score,
+        }
+        for chunk_id, score in fusioniert[:n_results]
+    ]

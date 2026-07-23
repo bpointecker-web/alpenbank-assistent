@@ -607,6 +607,244 @@ class TestFormatContext:
             rag.format_context([{"quelle": "a.txt"}])
 
 
+def _get_result(ids, documents, metadatas):
+    """Baut das ChromaDB-Get-Antwortformat (flache Listen) für Tests."""
+    return {"ids": ids, "documents": documents, "metadatas": metadatas}
+
+
+# ---------------------------------------------------------------------------
+# _tokenize
+# ---------------------------------------------------------------------------
+
+
+class TestTokenize:
+    def test_normalfall_lowercase_und_umlaute(self):
+        result = rag._tokenize("Überstunden werden im Folgemonat ausgeglichen!")
+
+        assert result == [
+            "überstunden",
+            "werden",
+            "im",
+            "folgemonat",
+            "ausgeglichen",
+        ]
+
+    def test_normalfall_zahlen_bleiben_eigene_tokens(self):
+        result = rag._tokenize("Kostenstelle 4711 hat Konto 6600.")
+
+        assert "4711" in result
+        assert "6600" in result
+
+    def test_randfall_leerer_text_gibt_leere_liste(self):
+        assert rag._tokenize("") == []
+
+    def test_randfall_nur_satzzeichen_gibt_leere_liste(self):
+        assert rag._tokenize("... ; , !?") == []
+
+
+# ---------------------------------------------------------------------------
+# build_bm25_index
+# ---------------------------------------------------------------------------
+
+
+class TestBuildBm25Index:
+    def test_normalfall_baut_index_aus_mehreren_chunks(self):
+        collection = MagicMock()
+        collection.get.return_value = _get_result(
+            ids=["a.txt#0", "b.txt#0"],
+            documents=[
+                "Hotelkategorie maximal vier Sterne.",
+                "Kilometergeld beträgt 42 Cent.",
+            ],
+            metadatas=[{"quelle": "a.txt"}, {"quelle": "b.txt"}],
+        )
+
+        index = rag.build_bm25_index(collection)
+
+        assert len(index.eintraege) == 2
+        assert index.eintraege[0]["quelle"] == "a.txt"
+        assert index.eintraege[1]["inhalt"] == "Kilometergeld beträgt 42 Cent."
+
+    def test_randfall_einzelner_chunk(self):
+        collection = MagicMock()
+        collection.get.return_value = _get_result(
+            ids=["a.txt#0"],
+            documents=["Ein einzelner Chunk."],
+            metadatas=[{"quelle": "a.txt"}],
+        )
+
+        index = rag.build_bm25_index(collection)
+
+        assert len(index.eintraege) == 1
+
+    def test_fehlerfall_leere_collection(self):
+        collection = MagicMock()
+        collection.get.return_value = _get_result(ids=[], documents=[], metadatas=[])
+
+        with pytest.raises(ValueError, match="keine Chunks"):
+            rag.build_bm25_index(collection)
+
+
+# ---------------------------------------------------------------------------
+# bm25_search
+# ---------------------------------------------------------------------------
+
+
+def _bm25_index_mit_drei_chunks() -> rag.Bm25Index:
+    collection = MagicMock()
+    collection.get.return_value = _get_result(
+        ids=["reise.txt#0", "passwort.txt#0", "ueberstunden.txt#0"],
+        documents=[
+            "Bei Dienstreisen betraegt das Kilometergeld 42 Cent pro Kilometer.",
+            "Passwoerter muessen mindestens zwoelf Zeichen lang sein.",
+            "Ueberstunden werden im Folgemonat in Zeitausgleich umgewandelt.",
+        ],
+        metadatas=[
+            {"quelle": "reise.txt"},
+            {"quelle": "passwort.txt"},
+            {"quelle": "ueberstunden.txt"},
+        ],
+    )
+    return rag.build_bm25_index(collection)
+
+
+class TestBm25Search:
+    def test_normalfall_findet_exakten_fachbegriff(self):
+        index = _bm25_index_mit_drei_chunks()
+
+        treffer = rag.bm25_search(index, "Kilometergeld", n_results=1)
+
+        assert treffer[0]["quelle"] == "reise.txt"
+        assert "score" in treffer[0]
+
+    def test_randfall_n_results_groesser_als_corpus(self):
+        index = _bm25_index_mit_drei_chunks()
+
+        treffer = rag.bm25_search(index, "Passwort Zeichen", n_results=10)
+
+        assert len(treffer) == 3
+
+    def test_fehlerfall_leere_frage(self):
+        index = _bm25_index_mit_drei_chunks()
+
+        with pytest.raises(ValueError, match="Frage darf nicht leer"):
+            rag.bm25_search(index, "   ")
+
+    def test_fehlerfall_n_results_nicht_positiv(self):
+        index = _bm25_index_mit_drei_chunks()
+
+        with pytest.raises(ValueError, match="n_results muss positiv"):
+            rag.bm25_search(index, "Kilometergeld", n_results=0)
+
+
+# ---------------------------------------------------------------------------
+# reciprocal_rank_fusion
+# ---------------------------------------------------------------------------
+
+
+class TestReciprocalRankFusion:
+    def test_normalfall_dokument_in_beiden_rangfolgen_gewinnt(self):
+        result = rag.reciprocal_rank_fusion([["a", "b", "c"], ["b", "a", "d"]])
+
+        # "a" ist Rang 1 in Liste 1 und Rang 2 in Liste 2 - höchster
+        # kombinierter Score, obwohl "a" nirgends Rang 1 UND 1 ist.
+        assert result[0][0] == "a"
+
+    def test_normalfall_score_werte_stimmen_mit_formel_ueberein(self):
+        result = rag.reciprocal_rank_fusion([["x"]], k=60)
+
+        chunk_id, score = result[0]
+        assert chunk_id == "x"
+        assert score == pytest.approx(1 / 61)
+
+    def test_randfall_leere_rangfolgen_liste(self):
+        assert rag.reciprocal_rank_fusion([]) == []
+
+    def test_randfall_ueberlappungsfreie_rangfolgen(self):
+        result = rag.reciprocal_rank_fusion([["a"], ["b"]])
+
+        assert {chunk_id for chunk_id, _ in result} == {"a", "b"}
+
+    def test_fehlerfall_k_nicht_positiv(self):
+        with pytest.raises(ValueError, match="k muss positiv"):
+            rag.reciprocal_rank_fusion([["a"]], k=0)
+
+
+# ---------------------------------------------------------------------------
+# hybrid_search
+# ---------------------------------------------------------------------------
+
+
+def _hybrid_setup():
+    """Baut Collection + BM25-Index aus denselben zwei Chunks."""
+    chunks = [
+        {
+            "id": "reise.txt#0",
+            "quelle": "reise.txt",
+            "inhalt": "Bei Dienstreisen sind Hotels bis maximal vier Sterne erlaubt.",
+        },
+        {
+            "id": "passwort.txt#0",
+            "quelle": "passwort.txt",
+            "inhalt": "Passwoerter muessen mindestens zwoelf Zeichen lang sein.",
+        },
+    ]
+    collection = MagicMock()
+    collection.query.return_value = _query_result(
+        ids=[c["id"] for c in chunks],
+        documents=[c["inhalt"] for c in chunks],
+        metadatas=[{"quelle": c["quelle"]} for c in chunks],
+        distances=[0.1, 0.5],
+    )
+    collection.get.return_value = _get_result(
+        ids=[c["id"] for c in chunks],
+        documents=[c["inhalt"] for c in chunks],
+        metadatas=[{"quelle": c["quelle"]} for c in chunks],
+    )
+    bm25_index = rag.build_bm25_index(collection)
+    return collection, bm25_index
+
+
+class TestHybridSearch:
+    def test_normalfall_liefert_fusion_score_statt_distanz(self):
+        collection, bm25_index = _hybrid_setup()
+
+        treffer = rag.hybrid_search(
+            collection, bm25_index, "Hotelkategorie", n_results=2
+        )
+
+        assert len(treffer) == 2
+        assert "fusion_score" in treffer[0]
+        assert "distanz" not in treffer[0]
+
+    def test_normalfall_absteigend_nach_fusion_score_sortiert(self):
+        collection, bm25_index = _hybrid_setup()
+
+        treffer = rag.hybrid_search(collection, bm25_index, "Hotel", n_results=2)
+
+        scores = [t["fusion_score"] for t in treffer]
+        assert scores == sorted(scores, reverse=True)
+
+    def test_randfall_n_results_begrenzt_ergebnisanzahl(self):
+        collection, bm25_index = _hybrid_setup()
+
+        treffer = rag.hybrid_search(collection, bm25_index, "Hotel", n_results=1)
+
+        assert len(treffer) == 1
+
+    def test_fehlerfall_leere_frage(self):
+        collection, bm25_index = _hybrid_setup()
+
+        with pytest.raises(ValueError, match="Frage darf nicht leer"):
+            rag.hybrid_search(collection, bm25_index, "   ")
+
+    def test_fehlerfall_n_results_nicht_positiv(self):
+        collection, bm25_index = _hybrid_setup()
+
+        with pytest.raises(ValueError, match="n_results muss positiv"):
+            rag.hybrid_search(collection, bm25_index, "Hotel", n_results=0)
+
+
 # ---------------------------------------------------------------------------
 # End-to-End-Test mit echtem Embedding-Modell.
 #

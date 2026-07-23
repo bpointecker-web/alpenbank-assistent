@@ -214,7 +214,7 @@ def execute_tool(
     name: str,
     tool_input: dict[str, Any],
     db: sqlite3.Connection,
-    collection: Any,
+    rag_index: rag.RagIndex,
 ) -> ToolErgebnis:
     """Führt einen Tool-Aufruf aus und liefert ein strukturiertes Ergebnis.
 
@@ -230,12 +230,16 @@ def execute_tool(
     sondern eine valide Information ("kein passender Abschnitt
     gefunden") – siehe Architektur-Skizze A4.
 
+    ``rag_index`` bündelt seit Stage 2.4 (Hybrid-Search) sowohl die
+    ChromaDB-Collection (dense) als auch den BM25-Index (Keyword) –
+    siehe ``rag.RagIndex``.
+
     Wirft ``ValueError`` bei unbekanntem Tool-Namen. Das ist ein
     Programmierfehler im Aufrufer (oder ein API-Fehlverhalten von
     Claude), den wir nicht stillschweigend übergehen wollen.
     """
     if name == "dokumenten_suche":
-        return _execute_dokumenten_suche(tool_input, collection)
+        return _execute_dokumenten_suche(tool_input, rag_index)
     if name == "datenbank_abfrage":
         return _execute_datenbank_abfrage(tool_input, db)
 
@@ -243,9 +247,9 @@ def execute_tool(
 
 
 def _execute_dokumenten_suche(
-    tool_input: dict[str, Any], collection: Any
+    tool_input: dict[str, Any], rag_index: rag.RagIndex
 ) -> ToolErgebnis:
-    """Implementiert das ``dokumenten_suche``-Tool."""
+    """Implementiert das ``dokumenten_suche``-Tool (Hybrid-Search)."""
     frage = tool_input.get("frage", "")
     if not isinstance(frage, str) or not frage.strip():
         return ToolErgebnis(
@@ -257,7 +261,9 @@ def _execute_dokumenten_suche(
             details=None,
         )
 
-    treffer = rag.search(collection, frage)
+    treffer = rag.hybrid_search(
+        rag_index.collection, rag_index.bm25_index, frage
+    )
 
     # Leere Trefferliste ist eine valide Information für Claude – kein
     # Fehler. Claude entscheidet selbst, ob er die Frage anders
@@ -350,7 +356,7 @@ def answer_question(
     frage: str,
     history: list[dict[str, Any]],
     db: sqlite3.Connection,
-    collection: Any,
+    rag_index: rag.RagIndex,
     schema: str,
     max_iterations: int = DEFAULT_MAX_ITERATIONS,
 ) -> AgentAntwort:
@@ -421,7 +427,7 @@ def answer_question(
                     continue
 
                 ergebnis = execute_tool(
-                    block.name, dict(block.input), db, collection
+                    block.name, dict(block.input), db, rag_index
                 )
                 traces.append(
                     ToolCallTrace(
