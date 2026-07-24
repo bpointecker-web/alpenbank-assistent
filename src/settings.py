@@ -27,6 +27,8 @@ class Settings(NamedTuple):
     max_tokens: int
     max_iterations: int
     session_token_budget: int
+    query_rewriting: bool
+    query_variants: int
 
 
 # Chunk-Größe seit Stage 2.2: 150 Wörter/30 Overlap statt vormals 500/50.
@@ -53,6 +55,43 @@ _DEFAULT_MAX_ITERATIONS = 5
 # Session, bevor der Nutzer eine neue Session starten muss. Gilt nicht im
 # Demo-Modus (dort entsteht ohnehin kein Token-Verbrauch).
 _DEFAULT_SESSION_TOKEN_BUDGET = 50_000
+# Query-Rewriting (Stage 2.6): vor der Dokumentensuche lässt der Agent
+# Claude ein paar alternative Formulierungen der Suchanfrage erzeugen und
+# sucht mit allen (Multi-Query). Erhöht die Trefferquote, wenn Nutzer und
+# Dokument dasselbe unterschiedlich benennen (z. B. "Trinkgeld" vs.
+# "Bewirtung"). Kostet pro Dokumentenfrage einen zusätzlichen Claude-Aufruf,
+# deshalb abschaltbar. Standardmäßig an, damit die Technik im Showroom aktiv
+# ist. Betrifft nur den Live-Modus – im Demo-Modus werden die einmalig
+# aufgezeichneten Varianten aus dem Cache angezeigt.
+_DEFAULT_QUERY_REWRITING = True
+# Anzahl der zusätzlich erzeugten Suchvarianten (die Originalfrage kommt
+# immer obendrauf). 3 ist ein guter Kompromiss aus Trefferbreite und
+# Extra-Latenz/Tokens.
+_DEFAULT_QUERY_VARIANTS = 3
+
+
+def _read_bool(env: Mapping[str, str], key: str, default: bool) -> bool:
+    """Liest einen Wahrheitswert aus der Umgebung, mit Default-Fallback.
+
+    Akzeptiert die gängigen Schreibweisen (1/0, true/false, yes/no, on/off,
+    case-insensitiv). Wirft ``ValueError`` bei einem gesetzten, aber nicht
+    interpretierbaren Wert – analog zu ``_read_int`` soll ein Tippfehler
+    nicht still zu falschem Verhalten führen.
+    """
+    rohwert = env.get(key)
+    if rohwert is None:
+        return default
+
+    normalisiert = rohwert.strip().lower()
+    if normalisiert in ("1", "true", "yes", "on"):
+        return True
+    if normalisiert in ("0", "false", "no", "off"):
+        return False
+
+    raise ValueError(
+        f"{key}={rohwert!r} ist kein gültiger Wahrheitswert "
+        "(erlaubt: 1/0, true/false, yes/no, on/off)."
+    )
 
 
 def _read_int(env: Mapping[str, str], key: str, default: int) -> int:
@@ -105,6 +144,12 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
     session_token_budget = _read_int(
         env, "ALPENBANK_SESSION_TOKEN_BUDGET", _DEFAULT_SESSION_TOKEN_BUDGET
     )
+    query_rewriting = _read_bool(
+        env, "ALPENBANK_QUERY_REWRITING", _DEFAULT_QUERY_REWRITING
+    )
+    query_variants = _read_int(
+        env, "ALPENBANK_QUERY_VARIANTS", _DEFAULT_QUERY_VARIANTS
+    )
 
     model = env.get("ALPENBANK_MODEL", _DEFAULT_MODEL)
     if not model.strip():
@@ -118,6 +163,8 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         max_tokens=max_tokens,
         max_iterations=max_iterations,
         session_token_budget=session_token_budget,
+        query_rewriting=query_rewriting,
+        query_variants=query_variants,
     )
 
 

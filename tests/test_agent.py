@@ -1006,3 +1006,88 @@ class TestAnswerQuestionTokenTracking:
 
         assert antwort.input_tokens == 20
         assert antwort.output_tokens == 10
+
+
+# ---------------------------------------------------------------------------
+# _parse_query_variants (Query-Rewriting, Stage 2.6)
+# ---------------------------------------------------------------------------
+
+
+class TestParseQueryVariants:
+    def test_normalfall_zerlegt_zeilen(self):
+        text = "Bewirtungskosten\nSpesenabrechnung\nZuwendungen"
+
+        result = agent._parse_query_variants(text, "Trinkgeld", 3)
+
+        assert result == ["Bewirtungskosten", "Spesenabrechnung", "Zuwendungen"]
+
+    def test_normalfall_entfernt_nummerierung_und_anfuehrungszeichen(self):
+        text = '1. "Bewirtung"\n2. Spesen\n- Zuwendungen'
+
+        result = agent._parse_query_variants(text, "Trinkgeld", 3)
+
+        assert result == ["Bewirtung", "Spesen", "Zuwendungen"]
+
+    def test_randfall_ueberspringt_leerzeilen_und_dubletten(self):
+        text = "Bewirtung\n\nBewirtung\nSpesen"
+
+        result = agent._parse_query_variants(text, "Trinkgeld", 5)
+
+        assert result == ["Bewirtung", "Spesen"]
+
+    def test_randfall_ueberspringt_wortgleiche_originalfrage(self):
+        text = "Trinkgeld\nBewirtung"
+
+        result = agent._parse_query_variants(text, "Trinkgeld", 3)
+
+        assert result == ["Bewirtung"]
+
+    def test_randfall_begrenzt_auf_n_variants(self):
+        text = "a\nb\nc\nd\ne"
+
+        result = agent._parse_query_variants(text, "frage", 2)
+
+        assert result == ["a", "b"]
+
+
+# ---------------------------------------------------------------------------
+# generate_query_variants (Query-Rewriting, Stage 2.6)
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateQueryVariants:
+    def test_normalfall_originalfrage_zuerst_dann_varianten(self):
+        client = MockClient([make_text_response("Bewirtung\nSpesen\nZuwendungen")])
+
+        result = agent.generate_query_variants(client, "Trinkgeld", n_variants=3)
+
+        assert result == ["Trinkgeld", "Bewirtung", "Spesen", "Zuwendungen"]
+
+    def test_normalfall_default_n_variants_stammt_aus_settings(self):
+        client = MockClient([make_text_response("a\nb\nc\nd\ne")])
+
+        result = agent.generate_query_variants(client, "frage")
+
+        # Originalfrage + query_variants (Default 3) aus SETTINGS.
+        assert len(result) == 1 + agent.SETTINGS.query_variants
+        assert result[0] == "frage"
+
+    def test_randfall_leere_frage_ohne_api_aufruf(self):
+        # Leere Antwortliste: würde bei einem create()-Aufruf hart scheitern.
+        client = MockClient([])
+
+        result = agent.generate_query_variants(client, "   ")
+
+        assert result == ["   "]
+
+    def test_fehlerfall_api_fehler_faellt_auf_originalfrage_zurueck(self):
+        class BrokenClient:
+            def __init__(self):
+                self.messages = self
+
+            def create(self, **kwargs):
+                raise RuntimeError("API kaputt")
+
+        result = agent.generate_query_variants(BrokenClient(), "Trinkgeld")
+
+        assert result == ["Trinkgeld"]

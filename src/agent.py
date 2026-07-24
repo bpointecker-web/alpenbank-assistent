@@ -394,6 +394,92 @@ def _extract_usage(response: Any) -> tuple[int, int]:
     return input_tokens, output_tokens
 
 
+# Kurzer, günstiger Aufruf – wir brauchen nur ein paar Zeilen Text.
+QUERY_REWRITE_MAX_TOKENS = 256
+
+QUERY_REWRITE_PROMPT = (
+    "Formuliere die folgende Suchanfrage in {n} alternative, kurze "
+    "Suchvarianten um. Jede Variante soll dieselbe Information mit anderen "
+    "Worten oder Synonymen suchen – anderer Wortlaut, gleiche Bedeutung. "
+    "Gib ausschließlich die Varianten aus, je eine pro Zeile, ohne "
+    "Nummerierung, ohne Anführungszeichen, ohne Einleitung.\n\n"
+    "Suchanfrage: {frage}"
+)
+
+
+def _parse_query_variants(
+    text: str, frage: str, n_variants: int
+) -> list[str]:
+    """Zerlegt die Modellantwort in saubere Suchvarianten.
+
+    Entfernt Aufzählungszeichen/Nummerierung und Anführungszeichen,
+    überspringt Leerzeilen, Dubletten und die wortgleiche Originalfrage
+    (case-insensitiv) und begrenzt auf ``n_variants``.
+    """
+    original_norm = frage.strip().lower()
+    varianten: list[str] = []
+    for zeile in text.splitlines():
+        kandidat = zeile.strip().lstrip("-*•0123456789.)( ").strip().strip('"').strip()
+        if not kandidat:
+            continue
+        kandidat_norm = kandidat.lower()
+        if kandidat_norm == original_norm:
+            continue
+        if kandidat_norm in (v.lower() for v in varianten):
+            continue
+        varianten.append(kandidat)
+        if len(varianten) >= n_variants:
+            break
+    return varianten
+
+
+def generate_query_variants(
+    client: Any, frage: str, n_variants: int | None = None
+) -> list[str]:
+    """Erzeugt Suchvarianten zu einer Frage (Query-Rewriting, Stage 2.6).
+
+    Lässt Claude in einem einzelnen, günstigen Aufruf ``n_variants``
+    alternative Formulierungen erzeugen und gibt ``[frage] + Varianten``
+    zurück – die Originalfrage steht bewusst an erster Stelle, damit die
+    Multi-Query-Suche sie immer mitberücksichtigt.
+
+    Bewusst maximal defensiv: Query-Rewriting ist eine Verbesserung, kein
+    Muss. Schlägt der Aufruf fehl oder liefert er nichts Brauchbares,
+    fällt die Funktion auf ``[frage]`` zurück – die Dokumentensuche läuft
+    dann einfach ohne Erweiterung weiter, statt zu scheitern.
+
+    Hinweis: Die Tokens dieses Zusatzaufrufs fließen bewusst nicht in das
+    Session-Budget/Audit-Log ein – der Aufruf passiert tief in der
+    Tool-Ausführung und ist mit ~256 Output-Tokens vernachlässigbar; die
+    Budget-Bremse bleibt dadurch minimal großzügig statt komplexe
+    Token-Rückführung durch den halben Loop zu erfordern.
+    """
+    if n_variants is None:
+        n_variants = SETTINGS.query_variants
+    if not isinstance(frage, str) or not frage.strip():
+        return [frage] if isinstance(frage, str) else []
+
+    try:
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=QUERY_REWRITE_MAX_TOKENS,
+            messages=[
+                {
+                    "role": "user",
+                    "content": QUERY_REWRITE_PROMPT.format(
+                        n=n_variants, frage=frage
+                    ),
+                }
+            ],
+        )
+        text = _extract_text_blocks(response)
+    except Exception:
+        # Netzwerk-/API-Fehler dürfen die Suche nicht verhindern.
+        return [frage]
+
+    return [frage] + _parse_query_variants(text, frage, n_variants)
+
+
 def answer_question(
     client: Any,
     frage: str,

@@ -644,6 +644,64 @@ def hybrid_search(
     ]
 
 
+def hybrid_search_multi(
+    collection: Any,
+    bm25_index: Bm25Index,
+    queries: list[str],
+    n_results: int = DEFAULT_N_RESULTS,
+) -> list[dict[str, Any]]:
+    """Multi-Query-Suche (Stage 2.6): fusioniert mehrere Anfrage-Formulierungen.
+
+    Für Query-Rewriting: statt nur mit der Originalfrage zu suchen, wird
+    mit mehreren Umformulierungen gesucht und die Ergebnisse werden per
+    RRF zusammengeführt. Ein Chunk, der bei mehreren Formulierungen weit
+    oben landet, steigt in der Gesamtwertung – das fängt Fälle ab, in
+    denen Nutzer und Dokument dasselbe unterschiedlich benennen.
+
+    Jede Query durchläuft die volle ``hybrid_search`` (Dense + BM25 + RRF);
+    anschließend fusionieren wir die pro-Query-Rangfolgen erneut per RRF.
+    Bei genau einer Query fällt das auf ``hybrid_search`` zurück (kein
+    Overhead, identisches Ergebnis).
+
+    Leere Strings in ``queries`` werden ignoriert. Wirft ``ValueError``,
+    wenn keine nicht-leere Query übrig bleibt oder ``n_results`` nicht
+    positiv ist.
+    """
+    if n_results <= 0:
+        raise ValueError(f"n_results muss positiv sein, war {n_results}.")
+
+    saubere_queries = [q for q in queries if isinstance(q, str) and q.strip()]
+    if not saubere_queries:
+        raise ValueError("queries enthält keine nicht-leere Anfrage.")
+
+    if len(saubere_queries) == 1:
+        return hybrid_search(
+            collection, bm25_index, saubere_queries[0], n_results=n_results
+        )
+
+    rankings: list[list[str]] = []
+    lookup: dict[str, dict[str, Any]] = {}
+    for query in saubere_queries:
+        treffer = hybrid_search(collection, bm25_index, query, n_results=n_results)
+        rankings.append([t["id"] for t in treffer])
+        for t in treffer:
+            # setdefault: erste (bestplatzierte) Fundstelle einer ID gewinnt
+            # als Inhalts-Quelle; der Fusions-Score kommt ohnehin aus der RRF.
+            lookup.setdefault(t["id"], t)
+
+    fusioniert = reciprocal_rank_fusion(rankings)
+
+    return [
+        {
+            "id": chunk_id,
+            "quelle": lookup[chunk_id]["quelle"],
+            "inhalt": lookup[chunk_id]["inhalt"],
+            "fusion_score": score,
+        }
+        for chunk_id, score in fusioniert[:n_results]
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Cross-Encoder-Reranking. Ein Cross-Encoder liest Frage und Chunk
 # GEMEINSAM (statt wie Embeddings getrennt in Vektoren zu kodieren und

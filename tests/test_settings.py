@@ -28,6 +28,8 @@ class TestLoadSettings:
             max_tokens=2048,
             max_iterations=5,
             session_token_budget=50_000,
+            query_rewriting=True,
+            query_variants=3,
         )
 
     def test_normalfall_teil_override_laesst_rest_beim_default(self):
@@ -46,6 +48,8 @@ class TestLoadSettings:
             "ALPENBANK_MAX_TOKENS": "2048",
             "ALPENBANK_MAX_ITERATIONS": "8",
             "ALPENBANK_SESSION_TOKEN_BUDGET": "100000",
+            "ALPENBANK_QUERY_REWRITING": "0",
+            "ALPENBANK_QUERY_VARIANTS": "5",
         }
 
         result = settings.load_settings(env)
@@ -58,6 +62,8 @@ class TestLoadSettings:
             max_tokens=2048,
             max_iterations=8,
             session_token_budget=100_000,
+            query_rewriting=False,
+            query_variants=5,
         )
 
     def test_randfall_none_nutzt_echte_prozessumgebung(self, monkeypatch):
@@ -100,6 +106,37 @@ class TestLoadSettings:
     def test_fehlerfall_leeres_model(self):
         with pytest.raises(ValueError, match="darf nicht leer sein"):
             settings.load_settings({"ALPENBANK_MODEL": "   "})
+
+    def test_normalfall_query_rewriting_default_an(self):
+        result = settings.load_settings({})
+
+        assert result.query_rewriting is True
+        assert result.query_variants == 3
+
+    def test_normalfall_query_rewriting_abschaltbar(self):
+        result = settings.load_settings({"ALPENBANK_QUERY_REWRITING": "false"})
+
+        assert result.query_rewriting is False
+
+    def test_randfall_query_rewriting_akzeptiert_diverse_schreibweisen(self):
+        for wahr in ("1", "true", "TRUE", "yes", "on"):
+            assert (
+                settings.load_settings({"ALPENBANK_QUERY_REWRITING": wahr}).query_rewriting
+                is True
+            )
+        for falsch in ("0", "false", "No", "off"):
+            assert (
+                settings.load_settings({"ALPENBANK_QUERY_REWRITING": falsch}).query_rewriting
+                is False
+            )
+
+    def test_fehlerfall_query_rewriting_unsinniger_wert(self):
+        with pytest.raises(ValueError, match="gültiger Wahrheitswert"):
+            settings.load_settings({"ALPENBANK_QUERY_REWRITING": "vielleicht"})
+
+    def test_fehlerfall_query_variants_nicht_positiv(self):
+        with pytest.raises(ValueError, match="muss positiv sein"):
+            settings.load_settings({"ALPENBANK_QUERY_VARIANTS": "0"})
 
 
 # ---------------------------------------------------------------------------

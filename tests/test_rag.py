@@ -874,6 +874,83 @@ class TestHybridSearch:
 
 
 # ---------------------------------------------------------------------------
+# hybrid_search_multi (Multi-Query / Query-Rewriting, Stage 2.6)
+# ---------------------------------------------------------------------------
+
+
+class TestHybridSearchMulti:
+    @staticmethod
+    def _treffer(ids):
+        return [
+            {
+                "id": i,
+                "quelle": f"{i}.txt",
+                "inhalt": f"Inhalt {i}",
+                "fusion_score": 0.1,
+            }
+            for i in ids
+        ]
+
+    def test_normalfall_einzelquery_faellt_auf_hybrid_search_zurueck(
+        self, monkeypatch
+    ):
+        aufrufe = []
+
+        def fake_hybrid(collection, bm25, query, n_results=5):
+            aufrufe.append(query)
+            return self._treffer(["a", "b"])
+
+        monkeypatch.setattr(rag, "hybrid_search", fake_hybrid)
+
+        result = rag.hybrid_search_multi(None, None, ["nur eine"], n_results=2)
+
+        # Genau ein hybrid_search-Aufruf, kein RRF-Overhead.
+        assert aufrufe == ["nur eine"]
+        assert [r["id"] for r in result] == ["a", "b"]
+
+    def test_normalfall_fusioniert_treffer_ueber_mehrere_queries(self, monkeypatch):
+        # "b" steht in beiden Query-Ergebnissen weit oben -> soll durch die
+        # Fusion an die Spitze steigen, obwohl es in keiner Liste Rang 1 ist.
+        antworten = {
+            "q1": self._treffer(["a", "b"]),
+            "q2": self._treffer(["b", "c"]),
+        }
+        monkeypatch.setattr(
+            rag, "hybrid_search", lambda c, i, query, n_results=5: antworten[query]
+        )
+
+        result = rag.hybrid_search_multi(None, None, ["q1", "q2"], n_results=3)
+
+        assert result[0]["id"] == "b"
+        assert {r["id"] for r in result} == {"a", "b", "c"}
+
+    def test_randfall_leere_strings_werden_ignoriert(self, monkeypatch):
+        aufrufe = []
+
+        def fake_hybrid(collection, bm25, query, n_results=5):
+            aufrufe.append(query)
+            return self._treffer(["a"])
+
+        monkeypatch.setattr(rag, "hybrid_search", fake_hybrid)
+
+        result = rag.hybrid_search_multi(
+            None, None, ["echte frage", "  ", ""], n_results=2
+        )
+
+        # Nur die nicht-leere Query wird gesucht (danach Einzelquery-Pfad).
+        assert aufrufe == ["echte frage"]
+        assert [r["id"] for r in result] == ["a"]
+
+    def test_fehlerfall_keine_nichtleere_query(self):
+        with pytest.raises(ValueError, match="keine nicht-leere"):
+            rag.hybrid_search_multi(None, None, ["", "  "], n_results=2)
+
+    def test_fehlerfall_n_results_nicht_positiv(self):
+        with pytest.raises(ValueError, match="n_results muss positiv"):
+            rag.hybrid_search_multi(None, None, ["x"], n_results=0)
+
+
+# ---------------------------------------------------------------------------
 # rerank
 # ---------------------------------------------------------------------------
 
