@@ -111,29 +111,36 @@ st.markdown(
     </style>
     <div class="alpenbank-header">
         <h1>🏔️ ALPENBANK KI-ASSISTENT (RAG)</h1>
-        <p>Ein Sprachmodell (LLM), das ausschließlich auf den internen Daten der (frei erfundenen) Alpenbank AG arbeitet: ihren Richtlinien-Dokumenten und ihrer Controlling-Datenbank (relationale Datenbank).</p>
-        <p>Statt allgemeines Wissen aus dem Internet wiederzugeben, beantwortet es Fragen belegbar aus dem eigenen Datenbestand der Bank – die Daten verlassen das Haus nicht. Genau das macht diese Technik für regulierte Branchen einsetzbar.</p>
-        <p>Zwei Arten von Fragen – der Assistent erkennt selbst, welche gemeint ist, und wählt das passende Werkzeug:</p>
-        <ul>
-            <li><strong>Richtlinien</strong> (Text-Dokumente): <em>„Welche Hotelkategorie darf ich auf Dienstreisen buchen?“</em></li>
-            <li><strong>Kennzahlen</strong> (Controlling-Datenbank): <em>„Wie hoch waren die Erträge 2024?“</em></li>
-        </ul>
-        <p>Beides lässt sich auch kombinieren. Bei jeder Antwort legt er offen, welche Quelle er benutzt hat – nachvollziehbar statt „vertrau mir“.</p>
+        <p>Ein Sprachmodell (LLM), das ausschließlich auf den internen Daten einer (frei erfundenen) Bank arbeitet – belegbar aus deren eigenen Richtlinien-Dokumenten und Controlling-Datenbank statt aus dem Internet.</p>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-# Die Banking-/Compliance-Tiefe wandert bewusst in einen Aufklapp-Bereich
-# statt in die immer sichtbare Kopf-Box: so bleibt der Einstieg kompakt
-# (Header + Beispielfragen passen zusammen ins Bild), die Differenzierer
-# sind aber einen Klick entfernt.
-with st.expander("🛡️ Was macht es bankfähig?"):
+# Die ausführliche Erklärung liegt bewusst in einem eingeklappten Dropdown:
+# So sieht der Besucher beim Laden sofort den Titel, die Kurzbeschreibung
+# UND die Beispielfragen ("alles"). Wer mehr wissen will, klappt die
+# Erklärung auf – dann darf der untere Bereich nach unten wandern.
+with st.expander("ℹ️ Erklärung – was ist das und wie funktioniert es?"):
     st.markdown(
         """
-Einen Chatbot baut man schnell. Die eigentliche Arbeit steckt darin, ihn so
-abzusichern, dass eine regulierte Bank ihn tatsächlich einsetzen darf. Genau
-diese Schicht zeigt die Demo:
+Statt allgemeines Wissen aus dem Internet wiederzugeben, beantwortet dieser
+Assistent Fragen **belegbar aus dem eigenen Datenbestand der Bank** – die Daten
+verlassen das Haus nicht. Genau das macht diese Technik für regulierte Branchen
+einsetzbar.
+
+Es gibt zwei Arten von Fragen – der Assistent erkennt selbst, welche gemeint
+ist, und wählt das passende Werkzeug:
+
+- **Richtlinien** (Text-Dokumente): *„Welche Hotelkategorie darf ich auf Dienstreisen buchen?“*
+- **Kennzahlen** (Controlling-Datenbank, relationale Datenbank): *„Wie hoch waren die Erträge 2024?“*
+
+Beides lässt sich auch kombinieren. Bei jeder Antwort legt er offen, welche
+Quelle er benutzt hat – nachvollziehbar statt „vertrau mir“.
+
+**Was macht es bankfähig?** Einen Chatbot baut man schnell. Die eigentliche
+Arbeit steckt darin, ihn so abzusichern, dass eine regulierte Bank ihn
+tatsächlich einsetzen darf:
 
 - **Nachvollziehbarkeit** – jede Antwort ist auf ihre Quelle zurückführbar, jede Anfrage wird protokolliert (Audit-Trail nach EU-AI-Act-Logik). Sichtbar unten im Governance-Panel.
 - **Manipulationsschutz** – ein präpariertes Dokument, das dem Assistenten heimlich neue Anweisungen unterjubeln will, wird erkannt und neutralisiert. Live ausprobierbar mit dem Chip *„Welche Regeln gelten für die Kundenkommunikation?“*.
