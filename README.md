@@ -56,8 +56,20 @@ Trace-Blöcke im UI angezeigt.
 Für den Showroom ergänzt: kostenloser Demo-Modus, Beispielfrage-Chips,
 Branding, strukturiertes Logging und gepinnte Dependencies sowie
 RAG-Tiefe nach 2026er-Standard – konfigurierbares Chunking, PDF-Ingestion,
-Hybrid-Search (Dense + BM25 via Reciprocal Rank Fusion) und
-Cross-Encoder-Reranking (siehe Abschnitt "Retrieval-Evaluation").
+Hybrid-Search (Dense + BM25 via Reciprocal Rank Fusion),
+Cross-Encoder-Reranking (siehe Abschnitt "Retrieval-Evaluation") und
+Query-Rewriting.
+
+**Query-Rewriting (Multi-Query):** Vor der Dokumentensuche lässt der Agent
+Claude ein paar alternative Formulierungen der Suchanfrage erzeugen und
+sucht mit allen gemeinsam (Ergebnisse per RRF fusioniert). Das fängt
+Fälle ab, in denen Nutzer und Dokument dasselbe unterschiedlich benennen
+(z. B. „Trinkgeld" vs. „Bewirtung"). Nur bei der Dokumentensuche aktiv,
+kostet dort einen zusätzlichen Claude-Aufruf – abschaltbar über
+`ALPENBANK_QUERY_REWRITING=0`, Variantenzahl über
+`ALPENBANK_QUERY_VARIANTS`. Die genutzten Suchvarianten werden im
+Tool-Trace angezeigt; im Demo-Modus stammen sie aus dem aufgezeichneten
+Cache.
 
 ```bash
 # Vorab einmalig: Daten erzeugen und RAG-Index aufbauen
