@@ -79,20 +79,23 @@ st.markdown(
     .alpenbank-header {
         background: linear-gradient(135deg, #0f2a3d 0%, #1b3a52 100%);
         color: #f5f1e6;
-        padding: 1.75rem 2rem;
+        padding: 1.25rem 1.5rem;
         border-radius: 0.5rem;
         border-bottom: 3px solid #c9a227;
-        margin-bottom: 1.25rem;
+        margin-bottom: 0.75rem;
     }
     .alpenbank-header h1 {
-        margin: 0 0 0.75rem 0;
-        font-size: 1.9rem;
+        margin: 0 0 0.5rem 0;
+        font-size: 1.55rem;
         color: #f5f1e6;
+    }
+    .alpenbank-header p {
+        margin: 0.4rem 0;
     }
     .alpenbank-header p, .alpenbank-header li {
         color: #cfd9e0;
-        font-size: 0.95rem;
-        line-height: 1.5;
+        font-size: 0.9rem;
+        line-height: 1.45;
     }
     .alpenbank-header strong {
         color: #f5f1e6;
@@ -116,16 +119,27 @@ st.markdown(
             <li><strong>Kennzahlen</strong> (Controlling-Datenbank): <em>„Wie hoch waren die Erträge 2024?“</em></li>
         </ul>
         <p>Beides lässt sich auch kombinieren. Bei jeder Antwort legt er offen, welche Quelle er benutzt hat – nachvollziehbar statt „vertrau mir“.</p>
-        <p>Einen Chatbot baut man schnell. Die eigentliche Arbeit steckt darin, ihn so abzusichern, dass eine regulierte Bank ihn tatsächlich einsetzen darf. Genau diese Schicht zeigt die Demo:</p>
-        <ul>
-            <li><strong>Nachvollziehbarkeit</strong> – jede Antwort ist auf ihre Quelle zurückführbar, jede Anfrage wird protokolliert (Audit-Trail nach EU-AI-Act-Logik). Sichtbar unten im Governance-Panel.</li>
-            <li><strong>Manipulationsschutz</strong> – ein präpariertes Dokument, das dem Assistenten heimlich neue Anweisungen unterjubeln will, wird erkannt und neutralisiert. Live ausprobierbar mit dem Chip <em>„Welche Regeln gelten für die Kundenkommunikation?“</em>.</li>
-            <li><strong>Datenschutz</strong> – personenbezogene Daten (E-Mail, IBAN, Telefonnummer) werden automatisch aus dem Protokoll entfernt.</li>
-        </ul>
     </div>
     """,
     unsafe_allow_html=True,
 )
+
+# Die Banking-/Compliance-Tiefe wandert bewusst in einen Aufklapp-Bereich
+# statt in die immer sichtbare Kopf-Box: so bleibt der Einstieg kompakt
+# (Header + Beispielfragen passen zusammen ins Bild), die Differenzierer
+# sind aber einen Klick entfernt.
+with st.expander("🛡️ Was macht es bankfähig?"):
+    st.markdown(
+        """
+Einen Chatbot baut man schnell. Die eigentliche Arbeit steckt darin, ihn so
+abzusichern, dass eine regulierte Bank ihn tatsächlich einsetzen darf. Genau
+diese Schicht zeigt die Demo:
+
+- **Nachvollziehbarkeit** – jede Antwort ist auf ihre Quelle zurückführbar, jede Anfrage wird protokolliert (Audit-Trail nach EU-AI-Act-Logik). Sichtbar unten im Governance-Panel.
+- **Manipulationsschutz** – ein präpariertes Dokument, das dem Assistenten heimlich neue Anweisungen unterjubeln will, wird erkannt und neutralisiert. Live ausprobierbar mit dem Chip *„Welche Regeln gelten für die Kundenkommunikation?“*.
+- **Datenschutz** – personenbezogene Daten (E-Mail, IBAN, Telefonnummer) werden automatisch aus dem Protokoll entfernt.
+        """
+    )
 
 # Architektur-Diagramm direkt in der App (statt Link nach außen): der
 # Besucher bleibt im Showroom. Die SVG liegt versioniert unter docs/ und
@@ -140,14 +154,11 @@ if ARCHITEKTUR_DIAGRAMM_PATH.exists():
 st.divider()
 
 if DEMO_MODE:
-    st.caption("Demo-Modus – kostenlos, ohne Live-API")
-    st.info(
-        "**Demo-Modus:** Diese Instanz beantwortet nur die "
-        "Beispielfragen unten mit vorab aufgezeichneten, echten "
-        "Claude-Antworten – kein API-Key, keine laufenden Kosten. "
-        "Für eigene Fragen: Projekt lokal mit eigenem "
-        "Anthropic-API-Key betreiben (siehe README).",
-        icon="🧪",
+    st.caption(
+        "🧪 **Demo-Modus** – beantwortet die Beispielfragen unten mit vorab "
+        "aufgezeichneten, echten Claude-Antworten (kein API-Key, keine "
+        "laufenden Kosten). Eigene Fragen: Projekt lokal mit eigenem "
+        "Anthropic-API-Key betreiben, siehe README."
     )
 else:
     # API-Key prüfen, bevor wir den Client bauen. Lieber sofort eine klare
@@ -606,9 +617,23 @@ if not st.session_state.messages:
             const c = doc.querySelector('[data-testid="stAppScrollToBottomContainer"]');
             if (c) { c.scrollTop = 0; }
         };
+        // Streamlits eigener Scroll-to-bottom feuert je nach Ladezeit unter-
+        // schiedlich spät. Wir überstimmen ihn über ein etwas längeres
+        // Zeitfenster (~1,6 s) statt nur einmalig, damit der Header beim
+        // Laden zuverlässig oben steht – auch wenn der Rechner mal langsamer
+        // rendert. Sobald der Nutzer selbst scrollt, hören wir sofort auf,
+        // um ihn nicht zu bevormunden.
         nachOben();
         let n = 0;
-        const iv = setInterval(() => { nachOben(); if (++n > 12) clearInterval(iv); }, 60);
+        let abgebrochen = false;
+        const stop = () => { abgebrochen = true; };
+        const c0 = doc.querySelector('[data-testid="stAppScrollToBottomContainer"]');
+        if (c0) { c0.addEventListener('wheel', stop, {passive: true, once: true}); }
+        const iv = setInterval(() => {
+            if (abgebrochen) { clearInterval(iv); return; }
+            nachOben();
+            if (++n > 20) clearInterval(iv);
+        }, 80);
         </script>
         """,
         height=0,
