@@ -1091,3 +1091,110 @@ class TestGenerateQueryVariants:
         result = agent.generate_query_variants(BrokenClient(), "Trinkgeld")
 
         assert result == ["Trinkgeld"]
+
+
+# ---------------------------------------------------------------------------
+# Query-Rewriting: Verdrahtung in execute_tool / answer_question (Stage 2.6)
+# ---------------------------------------------------------------------------
+
+
+def _zwei_chunk_rag_index():
+    return make_rag_index(
+        [
+            {
+                "id": "reise.txt#0",
+                "quelle": "reise.txt",
+                "inhalt": "Bei Dienstreisen sind Hotels bis vier Sterne erlaubt.",
+                "distanz": 0.1,
+            },
+            {
+                "id": "passwort.txt#0",
+                "quelle": "passwort.txt",
+                "inhalt": "Passwoerter muessen mindestens zwoelf Zeichen lang sein.",
+                "distanz": 0.5,
+            },
+        ]
+    )
+
+
+class TestExecuteDokumentenSucheQueryRewriting:
+    def test_normalfall_rewriter_varianten_landen_in_such_varianten(self):
+        rag_index = _zwei_chunk_rag_index()
+
+        def rewriter(frage):
+            return [frage, "Umschreibung eins", "Umschreibung zwei"]
+
+        ergebnis = agent.execute_tool(
+            "dokumenten_suche",
+            {"frage": "Hotelkategorie"},
+            None,
+            rag_index,
+            rewriter,
+        )
+
+        assert ergebnis.is_error is False
+        assert ergebnis.such_varianten == [
+            "Hotelkategorie",
+            "Umschreibung eins",
+            "Umschreibung zwei",
+        ]
+
+    def test_randfall_ohne_rewriter_keine_such_varianten(self):
+        rag_index = _zwei_chunk_rag_index()
+
+        ergebnis = agent.execute_tool(
+            "dokumenten_suche", {"frage": "Hotelkategorie"}, None, rag_index
+        )
+
+        assert ergebnis.such_varianten is None
+
+    def test_randfall_rewriter_liefert_unbrauchbares_faellt_auf_originalfrage(self):
+        rag_index = _zwei_chunk_rag_index()
+
+        ergebnis = agent.execute_tool(
+            "dokumenten_suche",
+            {"frage": "Hotelkategorie"},
+            None,
+            rag_index,
+            lambda frage: [],  # nichts Brauchbares
+        )
+
+        # Nur Originalfrage -> keine Varianten anzuzeigen.
+        assert ergebnis.such_varianten is None
+        assert ergebnis.is_error is False
+
+
+class TestAnswerQuestionQueryRewriting:
+    def test_normalfall_rewriter_wird_bei_dokumenten_suche_genutzt(self):
+        client = MockClient(
+            [
+                make_tool_use_response(
+                    "tid1", "dokumenten_suche", {"frage": "Hotelkategorie"}
+                ),
+                make_text_response("Fertige Antwort"),
+            ]
+        )
+        rag_index = _zwei_chunk_rag_index()
+        aufgerufen: list[str] = []
+
+        def rewriter(frage):
+            aufgerufen.append(frage)
+            return [frage, "variante"]
+
+        antwort = agent.answer_question(
+            client,
+            frage="Hotelkategorie",
+            history=[],
+            db=None,
+            rag_index=rag_index,
+            schema="<dummy/>",
+            query_rewriter=rewriter,
+        )
+
+        # Rewriter wurde mit Claudes Suchbegriff aufgerufen ...
+        assert aufgerufen == ["Hotelkategorie"]
+        # ... und die Varianten landen sichtbar im Trace.
+        assert antwort.traces[0].ergebnis.such_varianten == [
+            "Hotelkategorie",
+            "variante",
+        ]

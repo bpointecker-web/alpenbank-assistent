@@ -53,11 +53,18 @@ class ToolErgebnis(NamedTuple):
       Anthropic-Tool-Result-Blocks.
     * ``details``: was die UI anzeigen soll (Trefferliste oder SQL +
       Tabelle). Wird nicht an Claude geschickt.
+    * ``such_varianten``: nur bei ``dokumenten_suche`` mit aktivem
+      Query-Rewriting (Stage 2.6) gesetzt – die Liste der tatsächlich
+      gesuchten Formulierungen (Originalfrage + Umschreibungen). ``None``,
+      wenn nicht umgeschrieben wurde. Additives Feld mit Default, damit
+      bestehende Konstruktionen (SQL-Tool, Fehlerpfade, Demo-Deserialisierung)
+      unverändert bleiben und ``audit.py`` es schlicht ignorieren kann.
     """
 
     text: str
     is_error: bool
     details: Any
+    such_varianten: Any = None
 
 
 class ToolCallTrace(NamedTuple):
@@ -224,6 +231,7 @@ def execute_tool(
     tool_input: dict[str, Any],
     db: sqlite3.Connection,
     rag_index: rag.RagIndex,
+    query_rewriter: Any | None = None,
 ) -> ToolErgebnis:
     """Führt einen Tool-Aufruf aus und liefert ein strukturiertes Ergebnis.
 
@@ -243,12 +251,18 @@ def execute_tool(
     ChromaDB-Collection (dense) als auch den BM25-Index (Keyword) –
     siehe ``rag.RagIndex``.
 
+    ``query_rewriter`` (Stage 2.6, optional): ein Callable
+    ``frage -> list[str]``, das alternative Suchformulierungen liefert.
+    Nur ``dokumenten_suche`` nutzt es. ``None`` (Default) = kein
+    Rewriting, heutiges Einzelquery-Verhalten – so bleiben alle
+    bestehenden Aufrufer/Tests unverändert.
+
     Wirft ``ValueError`` bei unbekanntem Tool-Namen. Das ist ein
     Programmierfehler im Aufrufer (oder ein API-Fehlverhalten von
     Claude), den wir nicht stillschweigend übergehen wollen.
     """
     if name == "dokumenten_suche":
-        return _execute_dokumenten_suche(tool_input, rag_index)
+        return _execute_dokumenten_suche(tool_input, rag_index, query_rewriter)
     if name == "datenbank_abfrage":
         return _execute_datenbank_abfrage(tool_input, db)
 
@@ -256,9 +270,19 @@ def execute_tool(
 
 
 def _execute_dokumenten_suche(
-    tool_input: dict[str, Any], rag_index: rag.RagIndex
+    tool_input: dict[str, Any],
+    rag_index: rag.RagIndex,
+    query_rewriter: Any | None = None,
 ) -> ToolErgebnis:
-    """Implementiert das ``dokumenten_suche``-Tool (Hybrid-Search)."""
+    """Implementiert das ``dokumenten_suche``-Tool (Hybrid-Search).
+
+    Mit ``query_rewriter`` (Stage 2.6) wird die Frage vor der Suche in
+    mehrere Formulierungen umgeschrieben und per Multi-Query gesucht
+    (``rag.hybrid_search_multi``); ohne bleibt es beim Einzelquery-Pfad.
+    Das Reranking bewertet die Kandidaten anschließend immer gegen die
+    **Originalfrage** – die Umschreibungen dienen nur der breiteren
+    Vorauswahl, nicht der finalen Relevanzbewertung.
+    """
     frage = tool_input.get("frage", "")
     if not isinstance(frage, str) or not frage.strip():
         return ToolErgebnis(
@@ -270,17 +294,32 @@ def _execute_dokumenten_suche(
             details=None,
         )
 
-    # Breite Vorauswahl per Hybrid-Search (RERANK_CANDIDATE_POOL
-    # Kandidaten), dann Cross-Encoder-Reranking auf die finalen
-    # DEFAULT_N_RESULTS – der teurere, aber präzisere Reranker bewertet
-    # so nur eine Vorauswahl, nicht den gesamten Corpus.
-    kandidaten = rag.hybrid_search(
+    # Query-Rewriting: alternative Formulierungen erzeugen. Maximal
+    # defensiv – liefert der Rewriter nichts Brauchbares, suchen wir mit
+    # der Originalfrage allein weiter.
+    queries = [frage]
+    if query_rewriter is not None:
+        varianten = query_rewriter(frage)
+        if isinstance(varianten, list) and any(
+            isinstance(q, str) and q.strip() for q in varianten
+        ):
+            queries = varianten
+
+    # Breite Vorauswahl per (Multi-Query-)Hybrid-Search
+    # (RERANK_CANDIDATE_POOL Kandidaten), dann Cross-Encoder-Reranking auf
+    # die finalen DEFAULT_N_RESULTS – der teurere, aber präzisere Reranker
+    # bewertet so nur eine Vorauswahl, nicht den gesamten Corpus.
+    kandidaten = rag.hybrid_search_multi(
         rag_index.collection,
         rag_index.bm25_index,
-        frage,
+        queries,
         n_results=rag.RERANK_CANDIDATE_POOL,
     )
     treffer = rag.rerank(frage, kandidaten, rag_index.reranker)
+
+    # Nur wenn tatsächlich umgeschrieben wurde (mehr als die Originalfrage),
+    # halten wir die Varianten für die Trace-Anzeige fest.
+    such_varianten = queries if len(queries) > 1 else None
 
     # Transparenz-Layer (Stage 4.3): markiert Chunks mit erkannten
     # Injection-Mustern, BEVOR sie in den Prompt eingebettet werden. Der
@@ -305,10 +344,16 @@ def _execute_dokumenten_suche(
             ),
             is_error=False,
             details=[],
+            such_varianten=such_varianten,
         )
 
     kontext = rag.format_context(treffer)
-    return ToolErgebnis(text=kontext, is_error=False, details=treffer)
+    return ToolErgebnis(
+        text=kontext,
+        is_error=False,
+        details=treffer,
+        such_varianten=such_varianten,
+    )
 
 
 def _execute_datenbank_abfrage(
@@ -488,6 +533,7 @@ def answer_question(
     rag_index: rag.RagIndex,
     schema: str,
     max_iterations: int = DEFAULT_MAX_ITERATIONS,
+    query_rewriter: Any | None = None,
 ) -> AgentAntwort:
     """Beantwortet eine Frage über den Tool-Use-Multi-Turn-Loop.
 
@@ -567,7 +613,7 @@ def answer_question(
                     continue
 
                 ergebnis = execute_tool(
-                    block.name, dict(block.input), db, rag_index
+                    block.name, dict(block.input), db, rag_index, query_rewriter
                 )
                 traces.append(
                     ToolCallTrace(

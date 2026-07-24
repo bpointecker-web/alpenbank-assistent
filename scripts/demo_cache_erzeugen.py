@@ -32,6 +32,8 @@ from pathlib import Path
 # auch beim direkten Skript-Aufruf funktioniert.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import functools  # noqa: E402
+
 import chromadb  # noqa: E402
 from anthropic import Anthropic  # noqa: E402
 from dotenv import load_dotenv  # noqa: E402
@@ -65,6 +67,12 @@ def main() -> None:
     connection = sql.connect(str(CONTROLLING_PATH))
     schema = sql.build_schema_description(connection)
 
+    # Query-Rewriting (Stage 2.6) beim Cache-Erzeugen bewusst aktiv, damit
+    # die aufgezeichneten Suchvarianten im Demo-Cache landen und die
+    # öffentliche Demo die Technik sichtbar vorführen kann – unabhängig
+    # vom ALPENBANK_QUERY_REWRITING-Default zur Laufzeit.
+    query_rewriter = functools.partial(agent.generate_query_variants, client)
+
     eintraege: list[dict] = []
     for index, frage in enumerate(demo.DEMO_FRAGEN, start=1):
         print(f"[{index}/{len(demo.DEMO_FRAGEN)}] {frage}")
@@ -75,6 +83,7 @@ def main() -> None:
             db=connection,
             rag_index=rag_index,
             schema=schema,
+            query_rewriter=query_rewriter,
         )
         eintraege.append({"frage": frage, **demo.serialize_antwort(antwort)})
         print(f"    -> {len(antwort.traces)} Tool-Aufruf(e), Antwort erhalten.")

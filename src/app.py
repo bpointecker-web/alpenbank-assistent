@@ -24,6 +24,7 @@ Start im Projekt-Root:
 
 from __future__ import annotations
 
+import functools
 import logging
 import os
 import sqlite3
@@ -340,6 +341,17 @@ def render_trace(trace) -> None:
 
         # Erfolgreicher Aufruf – tool-spezifische Anzeige der Details.
         if trace.name == "dokumenten_suche":
+            # Query-Rewriting (Stage 2.6): wenn die Frage in mehrere
+            # Suchvarianten umgeschrieben wurde, machen wir das hier
+            # sichtbar – im Live-Modus wie im Demo-Modus (die Varianten
+            # sind im Cache mitaufgezeichnet). getattr, weil ältere
+            # Trace-Objekte das Feld nicht kennen.
+            such_varianten = getattr(trace.ergebnis, "such_varianten", None)
+            if such_varianten and len(such_varianten) > 1:
+                st.markdown(
+                    "**🔎 Umformulierte Suchanfragen (Query-Rewriting):** "
+                    + " · ".join(such_varianten)
+                )
             _render_dokumenten_suche_details(trace.ergebnis.details)
         elif trace.name == "datenbank_abfrage":
             _render_datenbank_abfrage_details(trace.ergebnis.details)
@@ -543,6 +555,16 @@ if user_input:
                 else:
                     antwort = demo.deserialize_antwort(cache_treffer)
             else:
+                # Query-Rewriting (Stage 2.6) nur im Live-Modus und nur,
+                # wenn per Setting aktiviert. Der Rewriter kapselt den
+                # echten Client; ``answer_question`` ruft ihn ausschließlich
+                # dann auf, wenn Claude tatsächlich die Dokumentensuche
+                # wählt – Zahlen-/SQL-Fragen lösen keinen Extra-Aufruf aus.
+                query_rewriter = (
+                    functools.partial(agent.generate_query_variants, client)
+                    if SETTINGS.query_rewriting
+                    else None
+                )
                 antwort = agent.answer_question(
                     client,
                     frage=user_input,
@@ -550,6 +572,7 @@ if user_input:
                     db=connection,
                     rag_index=rag_index,
                     schema=schema,
+                    query_rewriter=query_rewriter,
                 )
         except Exception:
             # Generischer Fang für unerwartete Probleme (Netzwerk,

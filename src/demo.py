@@ -87,6 +87,12 @@ def serialize_antwort(antwort: Any) -> dict[str, Any]:
                     "text": trace.ergebnis.text,
                     "is_error": trace.ergebnis.is_error,
                     "details": trace.ergebnis.details,
+                    # Stage 2.6: aufgezeichnete Query-Rewriting-Varianten,
+                    # damit die Demo sie anzeigen kann (getattr für ältere
+                    # AgentAntwort-Objekte ohne das Feld).
+                    "such_varianten": getattr(
+                        trace.ergebnis, "such_varianten", None
+                    ),
                 },
             }
             for trace in antwort.traces
@@ -120,6 +126,8 @@ def deserialize_antwort(eintrag: dict[str, Any]) -> Any:
                 text=eintrag_trace["ergebnis"]["text"],
                 is_error=eintrag_trace["ergebnis"]["is_error"],
                 details=eintrag_trace["ergebnis"]["details"],
+                # .get: ältere Cache-Dateien kennen das Feld noch nicht.
+                such_varianten=eintrag_trace["ergebnis"].get("such_varianten"),
             ),
         )
         for eintrag_trace in eintrag["traces"]
