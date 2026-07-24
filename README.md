@@ -57,8 +57,15 @@ Für den Showroom ergänzt: kostenloser Demo-Modus, Beispielfrage-Chips,
 Branding, strukturiertes Logging und gepinnte Dependencies sowie
 RAG-Tiefe nach 2026er-Standard – konfigurierbares Chunking, PDF-Ingestion,
 Hybrid-Search (Dense + BM25 via Reciprocal Rank Fusion),
-Cross-Encoder-Reranking (siehe Abschnitt "Retrieval-Evaluation") und
-Query-Rewriting.
+Cross-Encoder-Reranking (siehe Abschnitt "Retrieval-Evaluation"),
+Query-Rewriting und gestreamte Antworten.
+
+**Streaming:** Antworten erscheinen zeichenweise, während das Modell sie
+erzeugt (`agent.answer_question_streaming`, ein Generator neben dem
+nicht-streamenden `answer_question`). Tool-Aufrufe werden live sichtbar,
+sobald sie fertig sind. Im Demo-Modus wird derselbe Schreibmaschinen-
+Effekt aus der gecachten Antwort simuliert (`demo.simulate_streaming`),
+damit das Streaming auch ohne Live-API sichtbar ist.
 
 **Query-Rewriting (Multi-Query):** Vor der Dokumentensuche lässt der Agent
 Claude ein paar alternative Formulierungen der Suchanfrage erzeugen und
