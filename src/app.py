@@ -431,6 +431,52 @@ def render_message(msg: dict) -> None:
             )
 
 
+def render_streaming_antwort(event_stream) -> "agent.AgentAntwort | None":
+    """Rendert eine Streaming-Ereignisfolge live (Stage 2.7).
+
+    Verbraucht die Ereignisse aus ``agent.answer_question_streaming`` bzw.
+    ``demo.simulate_streaming``: Text wächst zeichenweise in einem
+    ``st.empty()``-Platzhalter (mit Cursor als Sofort-Feedback), fertige
+    Tool-Aufrufe werden als Trace-Blöcke darunter gerendert. Gibt die
+    finale ``AgentAntwort`` aus dem ``Done``-Ereignis zurück, damit der
+    Aufrufer danach identisch weiterarbeiten kann (Audit-Log, Budget,
+    Historie). Bewusst KEINE eigene Fehlerbehandlung – Exceptions aus dem
+    Generator sollen beim Aufrufer landen, der sie einheitlich mit dem
+    nicht-streamenden Pfad behandelt.
+    """
+    finale_antwort = None
+    with st.chat_message("assistant"):
+        text_platzhalter = st.empty()
+        # Cursor als Sofort-Feedback, bevor das erste Textstück eintrifft
+        # (im Live-Modus liegt davor u. U. der Query-Rewriting-Aufruf).
+        text_platzhalter.markdown("▌")
+        akku = ""
+        for event in event_stream:
+            if isinstance(event, agent.TextDelta):
+                akku += event.text
+                text_platzhalter.markdown(akku + " ▌")
+            elif isinstance(event, agent.ToolCallStarted):
+                # Der fertige Trace kommt gleich als ToolCallFinished – hier
+                # bewusst nichts rendern, um keinen halben Block zu zeigen.
+                pass
+            elif isinstance(event, agent.ToolCallFinished):
+                render_trace(event.trace)
+            elif isinstance(event, agent.Done):
+                finale_antwort = event.antwort
+
+        if finale_antwort is not None:
+            # Endstand ohne Cursor und konsistent zur Historie: der finale
+            # Antworttext (bei Multi-Turn ohne etwaigen Zwischen-Kommentar).
+            text_platzhalter.markdown(finale_antwort.text)
+            if finale_antwort.iterations_used >= agent.DEFAULT_MAX_ITERATIONS:
+                st.warning(
+                    "Iterationslimit erreicht – Claude hat möglicherweise "
+                    "nicht alle Werkzeuge sinnvoll einsetzen können."
+                )
+
+    return finale_antwort
+
+
 def render_governance_panel() -> None:
     """Governance-Panel (Stage 4.6): macht Compliance sichtbar statt nur behauptet.
 
@@ -539,53 +585,59 @@ if user_input:
     st.session_state.messages.append(user_msg)
     render_message(user_msg)
 
-    spinner_text = (
-        "Antwort wird geladen …" if DEMO_MODE else "Claude überlegt und nutzt Werkzeuge …"
-    )
-    with st.spinner(spinner_text):
-        try:
-            if DEMO_MODE:
-                cache_treffer = demo.lookup(demo_cache, user_input)
-                if cache_treffer is None:
-                    antwort = agent.AgentAntwort(
-                        text=demo.KEIN_CACHE_TREFFER_HINWEIS,
-                        traces=[],
-                        iterations_used=0,
-                    )
-                else:
-                    antwort = demo.deserialize_antwort(cache_treffer)
+    # Antwort wird gestreamt (Stage 2.7): Demo- wie Live-Modus liefern
+    # dieselbe Ereignisfolge, damit die UI EINEN Render-Pfad hat
+    # (render_streaming_antwort). Kein st.spinner mehr – der wachsende Text
+    # (bzw. der Cursor davor) ist das Fortschritts-Feedback.
+    try:
+        if DEMO_MODE:
+            cache_treffer = demo.lookup(demo_cache, user_input)
+            if cache_treffer is None:
+                gecachte_antwort = agent.AgentAntwort(
+                    text=demo.KEIN_CACHE_TREFFER_HINWEIS,
+                    traces=[],
+                    iterations_used=0,
+                )
             else:
-                # Query-Rewriting (Stage 2.6) nur im Live-Modus und nur,
-                # wenn per Setting aktiviert. Der Rewriter kapselt den
-                # echten Client; ``answer_question`` ruft ihn ausschließlich
-                # dann auf, wenn Claude tatsächlich die Dokumentensuche
-                # wählt – Zahlen-/SQL-Fragen lösen keinen Extra-Aufruf aus.
-                query_rewriter = (
-                    functools.partial(agent.generate_query_variants, client)
-                    if SETTINGS.query_rewriting
-                    else None
-                )
-                antwort = agent.answer_question(
-                    client,
-                    frage=user_input,
-                    history=history_for_agent(st.session_state.messages[:-1]),
-                    db=connection,
-                    rag_index=rag_index,
-                    schema=schema,
-                    query_rewriter=query_rewriter,
-                )
-        except Exception:
-            # Generischer Fang für unerwartete Probleme (Netzwerk,
-            # Auth, ChromaDB). Spezifische Fehlerklassen kommen, sobald
-            # wir sie im Betrieb wirklich beobachten. Die Details
-            # (inkl. Traceback) gehen ins Log, nicht ins UI – sonst
-            # leaken wir interne Fehlermeldungen an den Nutzer.
-            logger.exception("Fehler bei der Beantwortung der Frage")
-            st.error(
-                "Es ist ein unerwarteter Fehler aufgetreten. Die Details "
-                "wurden protokolliert. Bitte versuche es erneut."
+                gecachte_antwort = demo.deserialize_antwort(cache_treffer)
+            event_stream = demo.simulate_streaming(gecachte_antwort)
+        else:
+            # Query-Rewriting (Stage 2.6) nur im Live-Modus und nur, wenn
+            # per Setting aktiviert. Der Rewriter kapselt den echten
+            # Client; der Loop ruft ihn ausschließlich dann auf, wenn Claude
+            # tatsächlich die Dokumentensuche wählt – Zahlen-/SQL-Fragen
+            # lösen keinen Extra-Aufruf aus.
+            query_rewriter = (
+                functools.partial(agent.generate_query_variants, client)
+                if SETTINGS.query_rewriting
+                else None
             )
-            st.stop()
+            event_stream = agent.answer_question_streaming(
+                client,
+                frage=user_input,
+                history=history_for_agent(st.session_state.messages[:-1]),
+                db=connection,
+                rag_index=rag_index,
+                schema=schema,
+                query_rewriter=query_rewriter,
+            )
+        antwort = render_streaming_antwort(event_stream)
+    except Exception:
+        # Generischer Fang für unerwartete Probleme (Netzwerk, Auth,
+        # ChromaDB). Details (inkl. Traceback) gehen ins Log, nicht ins UI
+        # – sonst leaken wir interne Fehlermeldungen an den Nutzer.
+        logger.exception("Fehler bei der Beantwortung der Frage")
+        st.error(
+            "Es ist ein unerwarteter Fehler aufgetreten. Die Details "
+            "wurden protokolliert. Bitte versuche es erneut."
+        )
+        st.stop()
+
+    # Ohne abschließendes Done-Ereignis fehlt die finale Antwort – sollte
+    # nicht vorkommen, aber defensiv abbrechen statt auf None zuzugreifen.
+    if antwort is None:
+        logger.error("Streaming ohne Done-Ereignis abgeschlossen.")
+        st.stop()
 
     # Audit-Log und Budget-Zähler nur im Live-Modus: eine Demo-Modus-
     # Antwort ist keine echte Interaktion mit dem System (kein API-Call,
@@ -598,6 +650,9 @@ if user_input:
             antwort.input_tokens + antwort.output_tokens
         )
 
+    # Für die Historie merken (kein erneutes Rendern – die Antwort wurde
+    # bereits live gestreamt). Beim nächsten Streamlit-Re-Run baut
+    # render_message sie aus diesen Feldern wieder auf.
     assistant_msg = {
         "role": "assistant",
         "content": antwort.text,
@@ -605,7 +660,6 @@ if user_input:
         "iterations_used": antwort.iterations_used,
     }
     st.session_state.messages.append(assistant_msg)
-    render_message(assistant_msg)
 
 
 # Erst HIER (nach dem gesamten Frage-Antwort-Zyklus) aufrufen, nicht

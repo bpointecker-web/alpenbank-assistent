@@ -109,6 +109,46 @@ class AgentAntwort(NamedTuple):
     output_tokens: int = 0
 
 
+# ---------------------------------------------------------------------------
+# Streaming-Events (Stage 2.7). ``answer_question_streaming`` liefert diese
+# Ereignisse in zeitlicher Reihenfolge, damit die UI inkrementell rendern
+# kann: Text erscheint zeichenweise, Tool-Aufrufe werden sichtbar, sobald
+# sie starten bzw. fertig sind. Bewusst getrennte NamedTuples statt eines
+# Typ-Feldes – so kann die UI per ``isinstance`` klar unterscheiden.
+# ---------------------------------------------------------------------------
+
+
+class TextDelta(NamedTuple):
+    """Ein Stück Antworttext, wie es vom Modell gestreamt wird."""
+
+    text: str
+
+
+class ToolCallStarted(NamedTuple):
+    """Ein Tool-Aufruf beginnt (Name + Eingabe stehen fest, Ergebnis nicht)."""
+
+    name: str
+    tool_input: dict[str, Any]
+
+
+class ToolCallFinished(NamedTuple):
+    """Ein Tool-Aufruf ist fertig – trägt den vollständigen ``ToolCallTrace``."""
+
+    trace: ToolCallTrace
+
+
+class Done(NamedTuple):
+    """Abschluss-Ereignis mit der vollständigen ``AgentAntwort``.
+
+    Trägt dieselbe ``AgentAntwort`` wie der nicht-streamende Pfad, damit
+    die UI danach identisch weiterarbeiten kann (Audit-Log, Budget,
+    Historie) – der Streaming-Pfad unterscheidet sich nur im *Wie* der
+    Ausgabe, nicht im Ergebnis.
+    """
+
+    antwort: AgentAntwort
+
+
 # System-Prompt für den Tool-Use-Agenten.
 #
 # Aufbau in fünf Blöcken: Rolle, Sprache, Tool-Wahl-Regel,
@@ -663,4 +703,143 @@ def answer_question(
         iterations_used=max_iterations,
         input_tokens=input_tokens_gesamt,
         output_tokens=output_tokens_gesamt,
+    )
+
+
+def answer_question_streaming(
+    client: Any,
+    frage: str,
+    history: list[dict[str, Any]],
+    db: sqlite3.Connection,
+    rag_index: rag.RagIndex,
+    schema: str,
+    max_iterations: int = DEFAULT_MAX_ITERATIONS,
+    query_rewriter: Any | None = None,
+):
+    """Streamt die Beantwortung als Ereignisfolge (Stage 2.7).
+
+    Generator-Variante von ``answer_question`` mit identischer Semantik,
+    aber inkrementeller Ausgabe: pro Iteration wird ``client.messages.stream``
+    statt ``.create`` genutzt, Textstücke werden als ``TextDelta`` sofort
+    weitergereicht, Tool-Aufrufe als ``ToolCallStarted``/``ToolCallFinished``.
+    Das abschließende ``Done`` trägt die vollständige ``AgentAntwort`` –
+    identisch zu dem, was der nicht-streamende Pfad zurückgäbe (Text,
+    Traces, Iterationen, Tokens). So kann die UI danach unverändert
+    weiterarbeiten (Audit-Log, Budget, Historie).
+
+    Bewusst als eigene Funktion NEBEN ``answer_question`` statt als Umbau:
+    der nicht-streamende Pfad (u. a. die Cache-Erzeugung) bleibt dadurch
+    komplett unangetastet.
+
+    Wirft ``ValueError`` bei leerer Frage.
+    """
+    if not isinstance(frage, str) or not frage.strip():
+        raise ValueError("frage darf nicht leer sein.")
+
+    system_prompt = AGENT_SYSTEM_PROMPT.format(schema=schema)
+    messages: list[dict[str, Any]] = list(history) + [
+        {"role": "user", "content": frage}
+    ]
+    traces: list[ToolCallTrace] = []
+    input_tokens_gesamt = 0
+    output_tokens_gesamt = 0
+
+    for iteration in range(max_iterations):
+        # Textstücke live durchreichen, danach die vollständige Nachricht
+        # (mit Tool-Use-Blöcken, Stop-Grund, Usage) einsammeln – dieselbe
+        # Verarbeitung wie im nicht-streamenden Loop.
+        with client.messages.stream(
+            model=MODEL,
+            max_tokens=MAX_TOKENS,
+            system=system_prompt,
+            tools=TOOL_DEFINITIONS,
+            messages=messages,
+        ) as stream:
+            for textstueck in stream.text_stream:
+                if textstueck:
+                    yield TextDelta(textstueck)
+            final = stream.get_final_message()
+
+        it_input_tokens, it_output_tokens = _extract_usage(final)
+        input_tokens_gesamt += it_input_tokens
+        output_tokens_gesamt += it_output_tokens
+
+        stop_reason = getattr(final, "stop_reason", None)
+
+        if stop_reason == "end_turn":
+            yield Done(
+                AgentAntwort(
+                    text=_extract_text_blocks(final),
+                    traces=traces,
+                    iterations_used=iteration + 1,
+                    input_tokens=input_tokens_gesamt,
+                    output_tokens=output_tokens_gesamt,
+                )
+            )
+            return
+
+        if stop_reason == "tool_use":
+            messages.append({"role": "assistant", "content": final.content})
+
+            tool_result_blocks: list[dict[str, Any]] = []
+            for block in final.content:
+                if getattr(block, "type", None) != "tool_use":
+                    continue
+
+                yield ToolCallStarted(name=block.name, tool_input=dict(block.input))
+
+                ergebnis = execute_tool(
+                    block.name, dict(block.input), db, rag_index, query_rewriter
+                )
+                trace = ToolCallTrace(
+                    name=block.name,
+                    tool_input=dict(block.input),
+                    tool_use_id=block.id,
+                    ergebnis=ergebnis,
+                )
+                traces.append(trace)
+                yield ToolCallFinished(trace=trace)
+
+                tool_result_blocks.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": ergebnis.text,
+                        "is_error": ergebnis.is_error,
+                    }
+                )
+
+            messages.append({"role": "user", "content": tool_result_blocks})
+            continue
+
+        # Unerwarteter Stop-Grund – defensiv abbrechen, wie im nicht-
+        # streamenden Pfad.
+        yield Done(
+            AgentAntwort(
+                text=(
+                    f"Die Antwort konnte nicht regulär abgeschlossen werden "
+                    f"(Stop-Grund: {stop_reason!r})."
+                ),
+                traces=traces,
+                iterations_used=iteration + 1,
+                input_tokens=input_tokens_gesamt,
+                output_tokens=output_tokens_gesamt,
+            )
+        )
+        return
+
+    # Iterationslimit erreicht.
+    yield Done(
+        AgentAntwort(
+            text=(
+                f"Das Iterationslimit von {max_iterations} Tool-Aufrufen wurde "
+                f"erreicht, ohne dass Claude eine endgültige Antwort gegeben "
+                f"hat. Bitte konkretisiere deine Frage oder zerlege sie in "
+                f"Teilfragen."
+            ),
+            traces=traces,
+            iterations_used=max_iterations,
+            input_tokens=input_tokens_gesamt,
+            output_tokens=output_tokens_gesamt,
+        )
     )

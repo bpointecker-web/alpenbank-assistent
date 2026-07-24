@@ -1198,3 +1198,157 @@ class TestAnswerQuestionQueryRewriting:
             "Hotelkategorie",
             "variante",
         ]
+
+
+# ---------------------------------------------------------------------------
+# answer_question_streaming (Streaming, Stage 2.7)
+# ---------------------------------------------------------------------------
+
+
+class FakeStream:
+    """Kontext-Manager-Stub für ``client.messages.stream(...)``.
+
+    Ahmt die zwei Dinge nach, die der Streaming-Loop nutzt: ``text_stream``
+    (iteriert die Text-Häppchen) und ``get_final_message()`` (liefert die
+    vollständige Nachricht mit Tool-Use-Blöcken/Stop-Grund/Usage).
+    """
+
+    def __init__(self, text_pieces, final_message):
+        self._text_pieces = text_pieces
+        self._final = final_message
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    @property
+    def text_stream(self):
+        return iter(self._text_pieces)
+
+    def get_final_message(self):
+        return self._final
+
+
+class MockStreamClient:
+    """Stub für ``anthropic.Anthropic`` im Streaming-Modus."""
+
+    def __init__(self, streams):
+        # streams: Liste von (text_pieces, final_message) je Iteration.
+        self._streams = list(streams)
+        self.aufrufe: list[dict] = []
+        self.messages = self
+
+    def stream(self, **kwargs):
+        self.aufrufe.append(kwargs)
+        if not self._streams:
+            raise AssertionError("MockStreamClient: keine Streams mehr.")
+        text_pieces, final = self._streams.pop(0)
+        return FakeStream(text_pieces, final)
+
+
+class TestAnswerQuestionStreaming:
+    def test_normalfall_streamt_text_dann_done(self):
+        client = MockStreamClient(
+            [(["Hallo ", "Welt"], make_text_response("Hallo Welt", usage=make_usage(5, 3)))]
+        )
+
+        events = list(
+            agent.answer_question_streaming(
+                client,
+                frage="x",
+                history=[],
+                db=None,
+                rag_index=None,
+                schema="<dummy/>",
+            )
+        )
+
+        assert events[0] == agent.TextDelta("Hallo ")
+        assert events[1] == agent.TextDelta("Welt")
+        assert isinstance(events[-1], agent.Done)
+        antwort = events[-1].antwort
+        assert antwort.text == "Hallo Welt"
+        assert antwort.traces == []
+        assert antwort.input_tokens == 5
+        assert antwort.output_tokens == 3
+
+    def test_normalfall_ein_tool_dann_antwort(self):
+        rag_index = _zwei_chunk_rag_index()
+        client = MockStreamClient(
+            [
+                (
+                    [],
+                    make_tool_use_response(
+                        "tid1",
+                        "dokumenten_suche",
+                        {"frage": "Hotelkategorie"},
+                        usage=make_usage(4, 2),
+                    ),
+                ),
+                (["Fer", "tig"], make_text_response("Fertig", usage=make_usage(6, 1))),
+            ]
+        )
+
+        events = list(
+            agent.answer_question_streaming(
+                client,
+                frage="Hotelkategorie",
+                history=[],
+                db=None,
+                rag_index=rag_index,
+                schema="<dummy/>",
+            )
+        )
+
+        typen = [type(e).__name__ for e in events]
+        assert "ToolCallStarted" in typen
+        assert "ToolCallFinished" in typen
+        done = events[-1]
+        assert isinstance(done, agent.Done)
+        assert done.antwort.text == "Fertig"
+        assert len(done.antwort.traces) == 1
+        assert done.antwort.traces[0].name == "dokumenten_suche"
+        # Tokens über beide Iterationen summiert.
+        assert done.antwort.input_tokens == 10
+        assert done.antwort.output_tokens == 3
+
+    def test_randfall_iterationslimit(self):
+        rag_index = _zwei_chunk_rag_index()
+        tool_final = make_tool_use_response(
+            "t", "dokumenten_suche", {"frage": "Hotelkategorie"}
+        )
+        client = MockStreamClient([([], tool_final), ([], tool_final)])
+
+        events = list(
+            agent.answer_question_streaming(
+                client,
+                frage="Hotelkategorie",
+                history=[],
+                db=None,
+                rag_index=rag_index,
+                schema="<dummy/>",
+                max_iterations=2,
+            )
+        )
+
+        done = events[-1]
+        assert isinstance(done, agent.Done)
+        assert "Iterationslimit" in done.antwort.text
+        assert done.antwort.iterations_used == 2
+
+    def test_fehlerfall_leere_frage(self):
+        client = MockStreamClient([])
+
+        with pytest.raises(ValueError, match="frage darf nicht leer"):
+            list(
+                agent.answer_question_streaming(
+                    client,
+                    frage="   ",
+                    history=[],
+                    db=None,
+                    rag_index=None,
+                    schema="<dummy/>",
+                )
+            )

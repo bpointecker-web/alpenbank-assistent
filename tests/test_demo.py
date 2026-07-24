@@ -153,3 +153,69 @@ class TestLookup:
 
     def test_randfall_leerer_cache_gibt_none(self):
         assert demo.lookup({}, "irgendeine Frage") is None
+
+
+# ---------------------------------------------------------------------------
+# simulate_streaming (Demo-Streaming, Stage 2.7)
+# ---------------------------------------------------------------------------
+
+
+class TestSimulateStreaming:
+    @staticmethod
+    def _antwort_mit_trace():
+        return agent.AgentAntwort(
+            text="Hallo",
+            traces=[
+                agent.ToolCallTrace(
+                    name="dokumenten_suche",
+                    tool_input={"frage": "x"},
+                    tool_use_id="demo",
+                    ergebnis=agent.ToolErgebnis(
+                        text="ctx", is_error=False, details=[]
+                    ),
+                )
+            ],
+            iterations_used=1,
+        )
+
+    def test_normalfall_text_dann_trace_dann_done(self):
+        antwort = self._antwort_mit_trace()
+
+        events = list(
+            demo.simulate_streaming(
+                antwort, zeichen_pro_delta=2, verzoegerung=0, sleep=lambda s: None
+            )
+        )
+
+        text = "".join(
+            e.text for e in events if isinstance(e, agent.TextDelta)
+        )
+        assert text == "Hallo"
+        assert any(isinstance(e, agent.ToolCallFinished) for e in events)
+        assert isinstance(events[-1], agent.Done)
+        assert events[-1].antwort is antwort
+
+    def test_randfall_leerer_text_nur_done(self):
+        antwort = agent.AgentAntwort(text="", traces=[], iterations_used=0)
+
+        events = list(
+            demo.simulate_streaming(antwort, verzoegerung=0, sleep=lambda s: None)
+        )
+
+        assert [type(e).__name__ for e in events] == ["Done"]
+
+    def test_randfall_sleep_wird_pro_delta_aufgerufen(self):
+        antwort = agent.AgentAntwort(text="abcd", traces=[], iterations_used=0)
+        aufrufe = []
+
+        list(
+            demo.simulate_streaming(
+                antwort,
+                zeichen_pro_delta=2,
+                verzoegerung=0.01,
+                sleep=lambda s: aufrufe.append(s),
+            )
+        )
+
+        # "abcd" bei 2 Zeichen/Delta -> 2 Deltas -> 2 sleep-Aufrufe.
+        assert len(aufrufe) == 2

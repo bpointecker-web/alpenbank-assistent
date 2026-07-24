@@ -15,10 +15,19 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from pathlib import Path
 from typing import Any
 
 DEMO_CACHE_PATH = Path("data/demo_cache.json")
+
+# Simuliertes Streaming (Stage 2.7): Der Demo-Modus hat keine echte
+# API-Verbindung, spielt aber denselben Schreibmaschinen-Effekt vor wie
+# der Live-Modus – so ist das Streaming auch im öffentlichen Showroom
+# sichtbar. Werte bewusst flott (Gesamtdauer klar unter 2 s bei typischen
+# Antwortlängen), damit die Demo snappy bleibt.
+DEMO_STREAM_ZEICHEN_PRO_DELTA = 3
+DEMO_STREAM_VERZOEGERUNG = 0.012
 
 # Die zehn Demo-Fragen aus KONZEPT.md, wortgleich, plus ein elfter
 # Sicherheitsfall (Stage 4.3: Prompt-Injection-Guardrail). Grundlage
@@ -161,3 +170,33 @@ def load_cache(pfad: str | Path = DEMO_CACHE_PATH) -> dict[str, dict[str, Any]]:
 def lookup(cache: dict[str, dict[str, Any]], frage: str) -> dict[str, Any] | None:
     """Sucht eine Frage im geladenen Cache. Gibt ``None`` bei keinem Treffer."""
     return cache.get(normalize_frage(frage))
+
+
+def simulate_streaming(
+    antwort: Any,
+    zeichen_pro_delta: int = DEMO_STREAM_ZEICHEN_PRO_DELTA,
+    verzoegerung: float = DEMO_STREAM_VERZOEGERUNG,
+    sleep: Any = time.sleep,
+):
+    """Spielt eine gecachte Antwort als Streaming-Ereignisfolge ab (Stage 2.7).
+
+    Liefert dieselben Ereignistypen wie ``agent.answer_question_streaming``
+    (``TextDelta`` in kleinen Häppchen für den Schreibmaschinen-Effekt,
+    danach je Tool-Aufruf ein ``ToolCallFinished``, zuletzt ``Done``) –
+    damit die UI im Demo- und Live-Modus denselben Render-Pfad nutzt.
+
+    ``sleep`` ist injizierbar, damit Tests ohne echte Wartezeit laufen.
+    Lazy-Import von ``agent`` vermeidet einen Modul-Zyklus.
+    """
+    from src import agent
+
+    text = antwort.text or ""
+    for i in range(0, len(text), max(1, zeichen_pro_delta)):
+        yield agent.TextDelta(text[i : i + zeichen_pro_delta])
+        if verzoegerung:
+            sleep(verzoegerung)
+
+    for trace in antwort.traces:
+        yield agent.ToolCallFinished(trace=trace)
+
+    yield agent.Done(antwort)
